@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { db } from '../db/index.js';
 import { invoices, transactions, customers, shopSettings, transactionItems } from '../db/schema.js';
-import { eq, desc, ilike, count } from 'drizzle-orm';
+import { eq, desc, ilike, count, and, gte, lte } from 'drizzle-orm';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { generateInvoiceNo } from '../utils/invoiceNumber.js';
@@ -20,15 +20,27 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
     const offset = (page - 1) * limit;
+    const { from, to, gstEnabled } = req.query;
+
+    const conditions: any[] = [];
+    if (from) conditions.push(gte(invoices.issuedAt, new Date(from as string)));
+    if (to) {
+      const toDate = new Date(to as string);
+      toDate.setHours(23, 59, 59, 999);
+      conditions.push(lte(invoices.issuedAt, toDate));
+    }
+    if (gstEnabled !== undefined) conditions.push(eq(invoices.gstEnabled, gstEnabled === 'true'));
+    const where = conditions.length ? and(...conditions) : undefined;
 
     const [data, [{ total }]] = await Promise.all([
       db.query.invoices.findMany({
+        where,
         with: { customer: true },
         orderBy: desc(invoices.issuedAt),
         limit,
         offset,
       }),
-      db.select({ total: count() }).from(invoices),
+      db.select({ total: count() }).from(invoices).where(where),
     ]);
 
     res.json({ success: true, data, total: Number(total), page, limit, totalPages: Math.ceil(Number(total) / limit) });

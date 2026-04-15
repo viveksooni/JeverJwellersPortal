@@ -274,9 +274,7 @@ export function AnalyticsPage() {
                   if (value.count <= 10) return 'color-scale-3';
                   return 'color-scale-4';
                 }}
-                tooltipDataAttrs={(value: any) =>
-                  value?.date ? { 'data-date': String(value.date).slice(0, 10) } : {}
-                }
+                tooltipDataAttrs={() => ({})}
                 onClick={(value: any) => {
                   if (!value?.date) return;
                   const d = String(value.date).slice(0, 10);

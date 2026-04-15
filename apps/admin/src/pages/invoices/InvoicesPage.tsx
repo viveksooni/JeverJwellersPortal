@@ -1,20 +1,51 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, Download, Eye, MessageCircle, Loader2, CheckCircle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ColumnDef } from '@tanstack/react-table';
+import { FileText, Download, Eye, MessageCircle, Loader2, CheckCircle, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { DataTable } from '@/components/ui/data-table';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 import api from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 
-export function InvoicesPage() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['invoices'],
-    queryFn: () => api.get('/invoices?limit=50').then((r) => r.data),
-  });
+async function downloadInvoice(invoiceId: string, invoiceNo: string) {
+  try {
+    const res = await api.get(`/invoices/${invoiceId}/download`, {
+      responseType: 'blob',
+    });
+    const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${invoiceNo}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    toast({ variant: 'destructive', title: 'Download failed' });
+  }
+}
 
-  const invoices = data?.data ?? [];
+type Invoice = any;
+
+export function InvoicesPage() {
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [gstFilter, setGstFilter] = useState('all');
+
+  const { data = [], isLoading } = useQuery({
+    queryKey: ['invoices', startDate, endDate, gstFilter],
+    queryFn: () => {
+      const params = new URLSearchParams({ limit: '100' });
+      if (startDate) params.set('from', startDate);
+      if (endDate) params.set('to', endDate);
+      if (gstFilter !== 'all') params.set('gstEnabled', gstFilter === 'yes' ? 'true' : 'false');
+      return api.get(`/invoices?${params}`).then((r) => r.data.data);
+    },
+  });
 
   async function handleWhatsApp(invoiceId: string) {
     try {
@@ -27,89 +58,112 @@ export function InvoicesPage() {
     }
   }
 
+  const columns: ColumnDef<Invoice>[] = [
+    {
+      accessorKey: 'invoiceNo',
+      header: 'Invoice No',
+      cell: ({ row }) => <span className="font-mono font-medium text-gold-600">{row.getValue('invoiceNo')}</span>,
+    },
+    {
+      accessorKey: 'customer.name',
+      header: 'Customer',
+      cell: ({ row }) => row.original.customer?.name ?? <span className="text-muted-foreground">Walk-in</span>,
+    },
+    {
+      accessorKey: 'issuedAt',
+      header: 'Issued',
+      cell: ({ row }) => <span className="text-xs text-muted-foreground">{formatDateTime(row.getValue('issuedAt'))}</span>,
+    },
+    {
+      accessorKey: 'gstEnabled',
+      header: 'GST',
+      cell: ({ row }) => (
+        <Badge variant={row.getValue('gstEnabled') ? 'success' : 'secondary'}>
+          {row.getValue('gstEnabled') ? 'GST' : 'Simple'}
+        </Badge>
+      ),
+    },
+    {
+      accessorKey: 'whatsappSent',
+      header: 'WhatsApp',
+      cell: ({ row }) =>
+        row.getValue('whatsappSent') ? (
+          <CheckCircle className="h-4 w-4 text-emerald-500 mx-auto" />
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => {
+        const inv = row.original;
+        return (
+          <div className="flex items-center gap-2 justify-end">
+            {inv.pdfUrl && (
+              <>
+                <a href={inv.pdfUrl} target="_blank" rel="noopener noreferrer">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1">
+                    <Eye className="h-3.5 w-3.5" /> View
+                  </Button>
+                </a>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1 text-gold-700 border-gold-300 hover:bg-gold-50"
+                  onClick={() => downloadInvoice(inv.id, inv.invoiceNo)}
+                >
+                  <Download className="h-3.5 w-3.5" /> Download
+                </Button>
+              </>
+            )}
+            {inv.customer?.phone && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                onClick={() => handleWhatsApp(inv.id)}
+              >
+                <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+              </Button>
+            )}
+          </div>
+        );
+      },
+    },
+  ];
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
         title="Invoices"
-        description={`${data?.total ?? 0} invoices generated`}
+        description={`${data.length} invoices generated`}
       />
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="rounded-lg border border-border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary">
-              <tr>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Invoice No</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Customer</th>
-                <th className="text-left px-4 py-3 font-semibold text-muted-foreground">Issued</th>
-                <th className="text-center px-4 py-3 font-semibold text-muted-foreground">GST</th>
-                <th className="text-center px-4 py-3 font-semibold text-muted-foreground">WhatsApp</th>
-                <th className="text-right px-4 py-3 font-semibold text-muted-foreground">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {invoices.map((inv: any) => (
-                <tr key={inv.id} className="hover:bg-muted/40">
-                  <td className="px-4 py-3 font-mono font-medium text-gold-600">{inv.invoiceNo}</td>
-                  <td className="px-4 py-3">{inv.customer?.name ?? 'Walk-in'}</td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">{formatDateTime(inv.issuedAt)}</td>
-                  <td className="px-4 py-3 text-center">
-                    {inv.gstEnabled ? (
-                      <Badge variant="success">GST</Badge>
-                    ) : (
-                      <Badge variant="secondary">Simple</Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {inv.whatsappSent ? (
-                      <CheckCircle className="h-4 w-4 text-emerald-500 mx-auto" />
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center gap-2 justify-end">
-                      {inv.pdfUrl && (
-                        <>
-                          {/* View — opens in browser tab */}
-                          <a href={inv.pdfUrl} target="_blank" rel="noopener noreferrer">
-                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1">
-                              <Eye className="h-3.5 w-3.5" /> View
-                            </Button>
-                          </a>
-                          {/* Download — backend sets Content-Disposition: attachment */}
-                          <a href={`/api/invoices/${inv.id}/download`}>
-                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-gold-700 border-gold-300 hover:bg-gold-50">
-                              <Download className="h-3.5 w-3.5" /> Download
-                            </Button>
-                          </a>
-                        </>
-                      )}
-                      {inv.customer?.phone && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
-                          onClick={() => handleWhatsApp(inv.id)}
-                        >
-                          <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!isLoading && invoices.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="text-center py-12 text-muted-foreground">
-                    <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    No invoices yet. Generate them from the Transactions page.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* Filters */}
+        <div className="flex flex-wrap gap-3 items-center">
+          <DateRangePicker
+            startDate={startDate}
+            endDate={endDate}
+            onStartChange={setStartDate}
+            onEndChange={setEndDate}
+          />
+
+          <Select value={gstFilter} onValueChange={setGstFilter}>
+            <SelectTrigger className="w-40 h-9 text-sm">
+              <SelectValue placeholder="All GST" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All GST Types</SelectItem>
+              <SelectItem value="yes">With GST</SelectItem>
+              <SelectItem value="no">Simple (No GST)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
+
+        {/* Table */}
+        <DataTable columns={columns} data={data} isLoading={isLoading} />
       </div>
     </div>
   );

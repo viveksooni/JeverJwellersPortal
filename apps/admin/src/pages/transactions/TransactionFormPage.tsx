@@ -4,9 +4,11 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { format } from 'date-fns';
 import {
-  Plus, Trash2, Loader2, Search, ChevronDown, ChevronUp, UserPlus,
-  ShoppingCart, ShoppingBag, Wrench, ArrowLeftRight, Gem,
+  Plus, Trash2, Loader2, Search, ShoppingCart, ShoppingBag,
+  Wrench, ArrowLeftRight, Gem, User, Phone, Mail, MapPin,
+  Lock, CalendarIcon, Tag, ChevronDown,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,9 +18,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 import { PageHeader } from '@/components/layout/PageHeader';
 import api from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import type { TransactionType } from '@jever/shared';
 
@@ -27,11 +31,13 @@ import type { TransactionType } from '@jever/shared';
 const itemSchema = z.object({
   productId: z.string().optional(),
   productName: z.string().min(1, 'Item name required'),
+  metalType: z.string().optional(),          // gold | silver | platinum
   quantity: z.coerce.number().int().min(1).default(1),
   weightG: z.string().optional(),
   purity: z.string().optional(),
   ratePerGram: z.string().optional(),
   makingCharge: z.string().optional(),
+  makingType: z.enum(['flat', 'per_gram', 'percentage']).default('flat'),
   stoneCharge: z.string().default('0'),
   unitPrice: z.string().default('0'),
   totalPrice: z.string().default('0'),
@@ -40,8 +46,6 @@ const itemSchema = z.object({
 
 const formSchema = z.object({
   customerId: z.string().optional(),
-  goldRate: z.string().optional(),
-  silverRate: z.string().optional(),
   discountAmount: z.string().default('0'),
   taxAmount: z.string().default('0'),
   paymentMethod: z.enum(['cash', 'card', 'upi', 'bank_transfer', 'cheque', 'mixed']).optional(),
@@ -50,7 +54,6 @@ const formSchema = z.object({
   notes: z.string().optional(),
   transactionDate: z.string().optional(),
   items: z.array(itemSchema).default([]),
-  // Repair-specific
   repairItemDescription: z.string().optional(),
   repairIssue: z.string().optional(),
   repairType: z.string().optional(),
@@ -58,7 +61,6 @@ const formSchema = z.object({
   repairDeliveryDate: z.string().optional(),
   repairCharge: z.string().optional(),
   repairActualWeightG: z.string().optional(),
-  // Invoice GST
   gstEnabled: z.boolean().default(false),
 });
 
@@ -74,76 +76,303 @@ const TYPE_META: Record<string, { label: string; icon: React.ElementType; color:
   custom_order: { label: 'Custom Order', icon: Gem, color: 'text-amber-600' },
 };
 
-// ─── Product Search Dropdown ──────────────────────────────────────────────────
+// Build rate lookup key like "gold_22k", "silver_999"
+// Falls back to inferring metal from purity string when metalType not given
+function getRateKey(metalType?: string | null, purity?: string | null): string | null {
+  if (!purity) return null;
+  const p = purity.toLowerCase().replace(/\s/g, '');
+  const mt = metalType?.toLowerCase();
 
-function ProductSearchInput({
-  onSelect,
-}: {
-  onSelect: (product: any, rate: any) => void;
+  if (mt) return `${mt}_${p}`;
+
+  // Infer from purity
+  if (['24k', '22k', '18k', '14k'].includes(p)) return `gold_${p}`;
+  if (['999', '925'].includes(p)) return `silver_${p}`;
+  if (p === '950') return 'platinum_950';
+  return null;
+}
+
+// ─── Date Picker (single) ──────────────────────────────────────────────────
+
+function DatePicker({ value, onChange, placeholder = 'Pick date', disabled }: {
+  value?: string; onChange: (v: string) => void; placeholder?: string; disabled?: (d: Date) => boolean;
 }) {
+  const date = value ? new Date(value) : undefined;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn('w-full justify-start gap-2 h-9 font-normal text-sm', !date && 'text-muted-foreground')}
+        >
+          <CalendarIcon className="h-4 w-4 shrink-0" />
+          {date ? format(date, 'dd MMM yyyy') : placeholder}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={date}
+          onSelect={(d) => d && onChange(format(d, 'yyyy-MM-dd'))}
+          disabled={disabled}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ─── New Customer Mini-Form ───────────────────────────────────────────────────
+
+function NewCustomerForm({ prefill, onSave }: {
+  prefill: string;
+  onSave: (customer: any) => void;
+}) {
+  const [name, setName] = useState(() => /^\d/.test(prefill) ? '' : prefill);
+  const [phone, setPhone] = useState(() => /^\d/.test(prefill) ? prefill : '');
+  const [email, setEmail] = useState('');
+  const [address, setAddress] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!name.trim()) { toast({ variant: 'destructive', title: 'Name is required' }); return; }
+    setSaving(true);
+    try {
+      const res = await api.post('/customers', { name: name.trim(), phone: phone.trim() || undefined, email: email.trim() || undefined, address: address.trim() || undefined });
+      toast({ variant: 'success', title: 'Customer created!' });
+      onSave(res.data.data);
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to create customer' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-lg border border-gold-200 bg-gold-50 p-4 space-y-3">
+      <p className="text-xs font-semibold text-gold-700 uppercase tracking-wider">New Customer Details</p>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs flex items-center gap-1"><User className="h-3 w-3" /> Name *</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="h-8 text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs flex items-center gap-1"><Phone className="h-3 w-3" /> Phone</Label>
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 43210" className="h-8 text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs flex items-center gap-1"><Mail className="h-3 w-3" /> Email</Label>
+          <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="email@example.com" className="h-8 text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs flex items-center gap-1"><MapPin className="h-3 w-3" /> Address</Label>
+          <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="City / area" className="h-8 text-sm" />
+        </div>
+      </div>
+      <Button type="button" size="sm" variant="gold" onClick={handleSave} disabled={saving} className="w-full">
+        {saving ? <><Loader2 className="h-3 w-3 animate-spin" /> Saving…</> : <><Plus className="h-3 w-3" /> Save & Select Customer</>}
+      </Button>
+    </div>
+  );
+}
+
+// ─── Customer Section ─────────────────────────────────────────────────────────
+
+function CustomerSection({ setValue }: { setValue: any }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<any>(null);
+  const [showNewForm, setShowNewForm] = useState(false);
 
-  const { data } = useQuery({
-    queryKey: ['product-search', q],
-    queryFn: () =>
-      q.length >= 2
-        ? api.get(`/products?search=${q}&limit=10`).then((r) => r.data.data)
-        : Promise.resolve([]),
+  const { data: results = [] } = useQuery({
+    queryKey: ['customer-search', q],
+    queryFn: () => q.length >= 2
+      ? api.get(`/customers?search=${q}&limit=8`).then((r) => r.data.data)
+      : Promise.resolve([]),
     enabled: q.length >= 2,
   });
 
-  const { data: todayRates = {} } = useQuery({
-    queryKey: ['rates', 'today'],
-    queryFn: () => api.get('/rates/today').then((r) => r.data.data),
-    staleTime: 60_000,
-  });
+  function select(c: any) {
+    setSelected(c);
+    setValue('customerId', c.id);
+    setOpen(false);
+    setQ('');
+    setShowNewForm(false);
+  }
 
-  const results: any[] = data ?? [];
+  function clear() {
+    setSelected(null);
+    setValue('customerId', undefined);
+    setQ('');
+    setShowNewForm(false);
+  }
+
+  if (selected) {
+    return (
+      <div className="rounded-lg bg-secondary px-4 py-3 flex items-start justify-between gap-3">
+        <div className="space-y-0.5">
+          <p className="font-medium">{selected.name}</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+            {selected.phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{selected.phone}</span>}
+            {selected.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{selected.email}</span>}
+            {selected.address && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{selected.address}</span>}
+          </div>
+        </div>
+        <Button type="button" size="sm" variant="ghost" onClick={clear} className="shrink-0">Change</Button>
+      </div>
+    );
+  }
 
   return (
-    <div className="relative">
+    <div>
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search & add product…"
+          placeholder="Search by name or phone…"
           className="pl-9"
           value={q}
-          onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+          onChange={(e) => { setQ(e.target.value); setOpen(true); setShowNewForm(false); }}
           onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onBlur={() => setTimeout(() => setOpen(false), 200)}
         />
       </div>
-      {open && results.length > 0 && (
-        <div className="absolute z-50 w-full mt-1 rounded-md border bg-popover shadow-lg max-h-60 overflow-y-auto">
-          {results.map((p: any) => {
-            const rateKey = p.metalType && p.purity
-              ? `${p.metalType}_${p.purity.toLowerCase().replace('k', 'k')}`
-              : null;
-            const rate = rateKey ? (todayRates as any)[rateKey] : null;
+
+      {open && q.length >= 2 && (
+        <div className="absolute z-50 w-full mt-1 rounded-md border bg-popover shadow-lg max-h-52 overflow-y-auto">
+          {(results as any[]).map((c: any) => (
+            <button
+              key={c.id}
+              type="button"
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-accent text-sm"
+              onMouseDown={() => select(c)}
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-100 text-gold-700 text-xs font-bold">
+                {c.name.slice(0, 2).toUpperCase()}
+              </div>
+              <div>
+                <p className="font-medium">{c.name}</p>
+                <p className="text-xs text-muted-foreground">{c.phone ?? 'No phone'} {c.email ? `· ${c.email}` : ''}</p>
+              </div>
+            </button>
+          ))}
+
+          {/* No results → offer to create */}
+          {(results as any[]).length === 0 && !showNewForm && (
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-accent text-sm text-gold-600 font-medium"
+              onMouseDown={() => { setOpen(false); setShowNewForm(true); }}
+            >
+              <Plus className="h-4 w-4" /> Add new customer "{q}"
+            </button>
+          )}
+        </div>
+      )}
+
+      {showNewForm && (
+        <NewCustomerForm prefill={q} onSave={select} />
+      )}
+
+      {!showNewForm && (
+        <p className="text-xs text-muted-foreground mt-1.5">Leave blank for walk-in customer</p>
+      )}
+    </div>
+  );
+}
+
+// ─── Enhanced Product Search ──────────────────────────────────────────────────
+
+function ProductSearchInput({ todayRates, onSelect }: {
+  todayRates: Record<string, string>;
+  onSelect: (product: any, rate: string | null) => void;
+}) {
+  const [q, setQ] = useState('');
+  const [categoryId, setCategoryId] = useState('all');
+  const [open, setOpen] = useState(false);
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.get('/products/meta/categories').then((r) => r.data.data),
+    staleTime: 300_000,
+  });
+
+  const { data: results = [] } = useQuery({
+    queryKey: ['product-search', q, categoryId],
+    queryFn: () => {
+      const params = new URLSearchParams({ limit: '12' });
+      if (q.length >= 1) params.set('search', q);
+      if (categoryId !== 'all') params.set('categoryId', categoryId);
+      return api.get(`/products?${params}`).then((r) => r.data.data);
+    },
+    enabled: q.length >= 1 || categoryId !== 'all',
+  });
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        {/* Category filter */}
+        <Select value={categoryId} onValueChange={setCategoryId}>
+          <SelectTrigger className="w-36 h-9 text-sm shrink-0">
+            <SelectValue placeholder="Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Categories</SelectItem>
+            {(categories as any[]).map((c: any) => (
+              <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Search by name or SKU */}
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by name or SKU…"
+            className="pl-9 h-9 text-sm"
+            value={q}
+            onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+          />
+        </div>
+      </div>
+
+      {open && (results as any[]).length > 0 && (
+        <div className="absolute z-50 w-full mt-1 rounded-md border bg-popover shadow-lg max-h-72 overflow-y-auto">
+          {(results as any[]).map((p: any) => {
+            const rateKey = getRateKey(p.metalType, p.purity);
+            const rate = rateKey ? (todayRates[rateKey] ?? null) : null;
+            const stock = p.inventory?.quantity ?? 0;
             return (
               <button
                 key={p.id}
                 type="button"
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-accent text-sm"
-                onMouseDown={() => {
-                  onSelect(p, { todayRates, rateKey, rate });
-                  setQ('');
-                  setOpen(false);
-                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-accent text-sm border-b border-border/50 last:border-0"
+                onMouseDown={() => { onSelect(p, rate); setQ(''); setOpen(false); }}
               >
-                {p.images?.[0] && (
-                  <img src={p.images[0].url} alt="" className="h-8 w-8 rounded object-cover" />
+                {p.images?.[0] ? (
+                  <img src={p.images[0].url} alt="" className="h-10 w-10 rounded-md object-cover shrink-0" />
+                ) : (
+                  <div className="h-10 w-10 rounded-md bg-secondary flex items-center justify-center shrink-0">
+                    <Gem className="h-4 w-4 text-muted-foreground" />
+                  </div>
                 )}
                 <div className="flex-1 min-w-0">
                   <p className="font-medium truncate">{p.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {p.purity && `${p.purity} · `}
-                    {p.grossWeightG && `${p.grossWeightG}g · `}
-                    Stock: {p.inventory?.quantity ?? 0}
-                  </p>
+                  <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground mt-0.5">
+                    {p.sku && <span className="flex items-center gap-0.5"><Tag className="h-3 w-3" />{p.sku}</span>}
+                    {p.purity && <span>{p.purity}</span>}
+                    {p.grossWeightG && <span>{p.grossWeightG}g</span>}
+                    <span className={stock === 0 ? 'text-red-500' : stock <= 2 ? 'text-amber-500' : 'text-emerald-600'}>
+                      Stock: {stock}
+                    </span>
+                  </div>
                 </div>
-                {rate && <span className="text-xs text-gold-600">₹{parseFloat(rate).toLocaleString('en-IN')}/g</span>}
+                <div className="text-right shrink-0">
+                  {rate && <p className="text-xs text-gold-600 font-semibold">₹{parseFloat(rate).toLocaleString('en-IN')}/g</p>}
+                  <p className="text-xs text-muted-foreground">{p.category?.name}</p>
+                </div>
               </button>
             );
           })}
@@ -155,87 +384,158 @@ function ProductSearchInput({
 
 // ─── Line Item Row ────────────────────────────────────────────────────────────
 
-function LineItemRow({
-  index,
-  register,
-  watch,
-  setValue,
-  remove,
-  isExchange,
-}: {
-  index: number;
-  register: any;
-  watch: any;
-  setValue: any;
-  remove: () => void;
-  isExchange: boolean;
+function LineItemRow({ index, register, watch, setValue, remove, isExchange, todayRates }: {
+  index: number; register: any; watch: any; setValue: any;
+  remove: () => void; isExchange: boolean; todayRates: Record<string, string>;
 }) {
-  const qty = parseFloat(watch(`items.${index}.quantity`) || '1');
-  const weight = parseFloat(watch(`items.${index}.weightG`) || '0');
-  const rate = parseFloat(watch(`items.${index}.ratePerGram`) || '0');
-  const making = parseFloat(watch(`items.${index}.makingCharge`) || '0');
-  const stone = parseFloat(watch(`items.${index}.stoneCharge`) || '0');
+  const qty        = parseFloat(watch(`items.${index}.quantity`) || '1');
+  const weight     = parseFloat(watch(`items.${index}.weightG`) || '0');
+  const purity     = watch(`items.${index}.purity`) || '';
+  const metalType  = watch(`items.${index}.metalType`) || '';
+  const stone      = parseFloat(watch(`items.${index}.stoneCharge`) || '0');
+  const makingRaw  = parseFloat(watch(`items.${index}.makingCharge`) || '0');
+  const makingType = watch(`items.${index}.makingType`) || 'flat';
 
-  // Auto-calculate unit price
+  // Rate locked from central rates
+  const rateKey = getRateKey(metalType || null, purity || null);
+  const lockedRate = rateKey ? parseFloat(todayRates[rateKey] ?? '0') : 0;
+  const rateDisplay = watch(`items.${index}.ratePerGram`) || '';
+
+  // Compute making value based on type
+  const metalPrice = lockedRate > 0 && weight > 0 ? lockedRate * weight : 0;
+  const makingValue =
+    makingType === 'per_gram' ? makingRaw * weight :
+    makingType === 'percentage' ? (metalPrice * makingRaw) / 100 :
+    makingRaw; // flat
+
+  // Auto-calculate totals
   useEffect(() => {
-    let price = 0;
-    if (rate && weight) {
-      price = weight * rate + making + stone;
-    } else {
-      price = making + stone;
-    }
-    const total = price * qty;
-    setValue(`items.${index}.unitPrice`, price.toFixed(2));
+    const unitPrice = metalPrice + makingValue + stone;
+    const total = unitPrice * qty;
+    setValue(`items.${index}.unitPrice`, unitPrice.toFixed(2));
     setValue(`items.${index}.totalPrice`, total.toFixed(2));
-  }, [qty, weight, rate, making, stone]);
+    if (lockedRate > 0) setValue(`items.${index}.ratePerGram`, lockedRate.toFixed(2));
+  }, [qty, weight, lockedRate, makingRaw, makingType, stone]);
 
   const totalPrice = watch(`items.${index}.totalPrice`) || '0';
+  const metalPrice$ = metalPrice;
+  const makingValue$ = makingValue;
 
   return (
-    <div className={`rounded-lg border p-3 space-y-3 ${isExchange ? 'border-emerald-200 bg-emerald-50' : 'border-border bg-card'}`}>
+    <div className={`rounded-lg border p-3 space-y-3 ${isExchange ? 'border-emerald-200 bg-emerald-50/60' : 'border-border bg-card'}`}>
+      {/* Row header */}
       <div className="flex items-center gap-2">
-        {isExchange && <Badge variant="success" className="text-[10px]">Exchange In</Badge>}
-        <div className="flex-1">
-          <Input
-            {...register(`items.${index}.productName`)}
-            placeholder="Item name / description"
-            className="text-sm"
-          />
-        </div>
+        {isExchange && <Badge variant="success" className="text-[10px] shrink-0">Exchange In</Badge>}
+        <Input
+          {...register(`items.${index}.productName`)}
+          placeholder="Item name / description"
+          className="text-sm flex-1"
+        />
         <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-destructive shrink-0" onClick={remove}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+
+      {/* Fields grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
         <div className="space-y-1">
           <Label className="text-xs">Qty</Label>
           <Input {...register(`items.${index}.quantity`)} type="number" min="1" className="text-sm h-8" />
         </div>
+
+        <div className="space-y-1">
+          <Label className="text-xs">Metal</Label>
+          <Select
+            value={metalType || 'gold'}
+            onValueChange={(v) => setValue(`items.${index}.metalType`, v)}
+          >
+            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="gold">Gold</SelectItem>
+              <SelectItem value="silver">Silver</SelectItem>
+              <SelectItem value="platinum">Platinum</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="space-y-1">
           <Label className="text-xs">Purity</Label>
-          <Input {...register(`items.${index}.purity`)} placeholder="22K" className="text-sm h-8" />
+          <Select
+            value={purity || ''}
+            onValueChange={(v) => setValue(`items.${index}.purity`, v)}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Select" />
+            </SelectTrigger>
+            <SelectContent>
+              {(metalType === 'silver'
+                ? ['999', '925']
+                : metalType === 'platinum'
+                ? ['950']
+                : ['24k', '22k', '18k', '14k']
+              ).map((p) => (
+                <SelectItem key={p} value={p}>{p.toUpperCase()}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+
         <div className="space-y-1">
           <Label className="text-xs">Weight (g)</Label>
           <Input {...register(`items.${index}.weightG`)} placeholder="12.500" className="text-sm h-8" />
         </div>
+
+        {/* Rate — locked from central rates */}
         <div className="space-y-1">
-          <Label className="text-xs">Rate/g (₹)</Label>
-          <Input {...register(`items.${index}.ratePerGram`)} placeholder="6233" className="text-sm h-8" />
+          <Label className="text-xs flex items-center gap-1">
+            Rate/g <Lock className="h-2.5 w-2.5 text-muted-foreground" />
+          </Label>
+          <div className="relative">
+            <Input
+              value={lockedRate > 0 ? `₹${lockedRate.toLocaleString('en-IN')}` : rateDisplay ? `₹${rateDisplay}` : '—'}
+              readOnly
+              className="text-sm h-8 bg-secondary cursor-not-allowed text-muted-foreground pr-2"
+            />
+          </div>
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Making (₹)</Label>
-          <Input {...register(`items.${index}.makingCharge`)} placeholder="500" className="text-sm h-8" />
+
+        {/* Making charge + type */}
+        <div className="space-y-1 col-span-2">
+          <Label className="text-xs">Making Charge</Label>
+          <div className="flex gap-1">
+            <Input {...register(`items.${index}.makingCharge`)} placeholder="0" className="text-sm h-8 flex-1" />
+            <Select
+              value={makingType}
+              onValueChange={(v) => setValue(`items.${index}.makingType`, v)}
+            >
+              <SelectTrigger className="h-8 w-28 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="flat">₹ Flat</SelectItem>
+                <SelectItem value="per_gram">₹/g</SelectItem>
+                <SelectItem value="percentage">% of metal</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
+
         <div className="space-y-1">
           <Label className="text-xs">Stone (₹)</Label>
           <Input {...register(`items.${index}.stoneCharge`)} placeholder="0" className="text-sm h-8" />
         </div>
       </div>
-      <div className="flex justify-end">
-        <p className="text-sm font-semibold text-gold-600">
-          Item Total: {formatCurrency(totalPrice)}
-        </p>
+
+      {/* Price breakdown */}
+      <div className="flex items-center justify-between bg-secondary/60 rounded px-3 py-1.5 text-xs text-muted-foreground">
+        <span>
+          Metal {formatCurrency(metalPrice$.toFixed(2))}
+          {makingValue$ > 0 && ` + Making ${formatCurrency(makingValue$.toFixed(2))}`}
+          {stone > 0 && ` + Stone ${formatCurrency(stone.toFixed(2))}`}
+        </span>
+        <span className="font-semibold text-gold-600 text-sm">
+          {formatCurrency(totalPrice)}
+        </span>
       </div>
     </div>
   );
@@ -259,27 +559,14 @@ export function TransactionFormPage() {
       amountPaid: '0',
       paymentStatus: 'unpaid',
       gstEnabled: false,
-      transactionDate: new Date().toISOString().slice(0, 16),
+      transactionDate: format(new Date(), 'yyyy-MM-dd'),
     },
   });
 
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
 
-  // Customer search
-  const [customerQ, setCustomerQ] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
-  const { data: customerResults = [] } = useQuery({
-    queryKey: ['customer-search', customerQ],
-    queryFn: () =>
-      customerQ.length >= 2
-        ? api.get(`/customers?search=${customerQ}&limit=8`).then((r) => r.data.data)
-        : Promise.resolve([]),
-    enabled: customerQ.length >= 2,
-  });
-  const [customerOpen, setCustomerOpen] = useState(false);
-
-  // Today's rates
-  const { data: todayRates = {} } = useQuery({
+  // Today's rates (locked)
+  const { data: todayRates = {} } = useQuery<Record<string, string>>({
     queryKey: ['rates', 'today'],
     queryFn: () => api.get('/rates/today').then((r) => r.data.data),
     staleTime: 60_000,
@@ -290,58 +577,53 @@ export function TransactionFormPage() {
   const discount = parseFloat(watch('discountAmount') || '0');
   const taxAmount = parseFloat(watch('taxAmount') || '0');
   const gstEnabled = watch('gstEnabled');
+  const transactionDate = watch('transactionDate');
+  const repairDeliveryDate = watch('repairDeliveryDate');
 
   const subtotal = items.reduce((s, item) => s + parseFloat(item.totalPrice || '0'), 0);
   const finalAmount = subtotal - discount + taxAmount;
 
   // Add product from search
-  const handleProductSelect = useCallback((product: any, rateInfo: any) => {
-    const rate = rateInfo?.rate ?? '';
+  const handleProductSelect = useCallback((product: any, rate: string | null) => {
     const weight = product.grossWeightG ?? '';
-    const making = product.makingCharge ?? '0';
+    const makingRaw = parseFloat(product.makingCharge ?? '0');
     const makingType = product.makingType ?? 'flat';
-    let makingValue = parseFloat(making);
-    if (makingType === 'per_gram' && weight) makingValue = makingValue * parseFloat(weight);
 
     const metalPrice = rate && weight ? parseFloat(rate) * parseFloat(weight) : 0;
+    const makingValue =
+      makingType === 'per_gram' ? makingRaw * parseFloat(weight || '0') :
+      makingType === 'percentage' ? (metalPrice * makingRaw) / 100 :
+      makingRaw;
     const unitPrice = metalPrice + makingValue;
 
     append({
       productId: product.id,
       productName: product.name,
+      metalType: product.metalType ?? '',
       quantity: 1,
       purity: product.purity ?? '',
-      weightG: product.grossWeightG ?? '',
+      weightG: String(weight),
       ratePerGram: rate ? String(parseFloat(rate)) : '',
-      makingCharge: makingValue ? String(makingValue.toFixed(2)) : '',
-      stoneCharge: '0',
+      makingCharge: String(makingRaw),
+      makingType,
+      stoneCharge: product.stoneCharge ?? '0',
       unitPrice: unitPrice.toFixed(2),
       totalPrice: unitPrice.toFixed(2),
       isExchangeItem: false,
     });
   }, [append]);
 
-  const addEmptyItem = (isExchangeItem = false) => {
-    append({
-      productId: undefined,
-      productName: '',
-      quantity: 1,
-      purity: '',
-      weightG: '',
-      ratePerGram: '',
-      makingCharge: '',
-      stoneCharge: '0',
-      unitPrice: '0',
-      totalPrice: '0',
-      isExchangeItem,
-    });
-  };
+  const addEmptyItem = (isExchangeItem = false) => append({
+    productId: undefined, productName: '', metalType: 'gold', quantity: 1,
+    purity: '', weightG: '', ratePerGram: '', makingCharge: '', makingType: 'flat',
+    stoneCharge: '0', unitPrice: '0', totalPrice: '0', isExchangeItem,
+  });
 
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
       const payload: any = {
         type,
-        customerId: selectedCustomer?.id,
+        customerId: values.customerId,
         totalAmount: subtotal.toFixed(2),
         discountAmount: values.discountAmount,
         taxAmount: values.taxAmount,
@@ -350,8 +632,8 @@ export function TransactionFormPage() {
         paymentStatus: values.paymentStatus,
         amountPaid: values.amountPaid,
         notes: values.notes,
-        goldRate: (todayRates as any)['gold_22k'] ?? values.goldRate,
-        silverRate: (todayRates as any)['silver_999'] ?? values.silverRate,
+        goldRate: (todayRates as any)['gold_22k'] ?? null,
+        silverRate: (todayRates as any)['silver_999'] ?? null,
         transactionDate: values.transactionDate,
         items: values.items,
       };
@@ -371,12 +653,8 @@ export function TransactionFormPage() {
       const txnRes = await api.post('/transactions', payload);
       const txnId = txnRes.data.data.id;
 
-      // Auto-generate invoice for sales
       if (type === 'sale' || type === 'custom_order') {
-        await api.post('/invoices', {
-          transactionId: txnId,
-          gstEnabled: values.gstEnabled,
-        }).catch(() => {}); // Non-blocking
+        await api.post('/invoices', { transactionId: txnId, gstEnabled: values.gstEnabled }).catch(() => {});
       }
 
       return txnRes.data.data;
@@ -386,102 +664,29 @@ export function TransactionFormPage() {
       navigate(`/transactions/${txn.id}`);
     },
     onError: (err: any) => {
-      toast({
-        variant: 'destructive',
-        title: 'Failed to create transaction',
-        description: err.response?.data?.error ?? 'Unknown error',
-      });
+      toast({ variant: 'destructive', title: 'Failed', description: err.response?.data?.error ?? 'Unknown error' });
     },
   });
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader
-        title={meta.label}
-        description={`Type: ${type.replace('_', ' ')}`}
-      />
+      <PageHeader title={meta.label} description={`Type: ${type.replace('_', ' ')}`} />
 
-      <form
-        onSubmit={handleSubmit((v) => mutation.mutate(v))}
-        className="flex-1 overflow-y-auto p-6 space-y-5"
-      >
+      <form onSubmit={handleSubmit((v) => mutation.mutate(v))} className="flex-1 overflow-y-auto p-6 space-y-5">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
           {/* ── Left column ── */}
           <div className="lg:col-span-2 space-y-5">
 
             {/* Customer */}
             <Card>
-              <CardHeader className="pb-3"><CardTitle className="text-sm">Customer</CardTitle></CardHeader>
-              <CardContent>
-                {selectedCustomer ? (
-                  <div className="flex items-center justify-between rounded-lg bg-secondary px-4 py-3">
-                    <div>
-                      <p className="font-medium">{selectedCustomer.name}</p>
-                      <p className="text-xs text-muted-foreground">{selectedCustomer.phone}</p>
-                    </div>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => { setSelectedCustomer(null); setCustomerQ(''); }}>
-                      Change
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search customer by name or phone…"
-                        className="pl-9"
-                        value={customerQ}
-                        onChange={(e) => { setCustomerQ(e.target.value); setCustomerOpen(true); }}
-                        onFocus={() => setCustomerOpen(true)}
-                        onBlur={() => setTimeout(() => setCustomerOpen(false), 150)}
-                      />
-                    </div>
-                    {customerOpen && customerQ.length >= 2 && (
-                      <div className="absolute z-50 w-full mt-1 rounded-md border bg-popover shadow-lg max-h-48 overflow-y-auto">
-                        {(customerResults as any[]).map((c: any) => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-accent text-sm"
-                            onMouseDown={() => { setSelectedCustomer(c); setValue('customerId', c.id); setCustomerOpen(false); setCustomerQ(''); }}
-                          >
-                            <div>
-                              <p className="font-medium">{c.name}</p>
-                              <p className="text-xs text-muted-foreground">{c.phone}</p>
-                            </div>
-                          </button>
-                        ))}
-                        {/* ✅ Create new customer option when no results */}
-                        {(customerResults as any[]).length === 0 && (
-                          <button
-                            type="button"
-                            className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-accent text-sm text-gold-600 font-medium"
-                            onMouseDown={async () => {
-                              try {
-                                // Check if it looks like a phone number
-                                const isPhone = /^\d{10}$/.test(customerQ.replace(/\s/g, ''));
-                                const payload = isPhone
-                                  ? { name: `Customer (${customerQ})`, phone: customerQ }
-                                  : { name: customerQ };
-                                const res = await import('@/lib/api').then(m => m.default.post('/customers', payload));
-                                const newCust = res.data.data;
-                                setSelectedCustomer(newCust);
-                                setValue('customerId', newCust.id);
-                                setCustomerOpen(false);
-                                setCustomerQ('');
-                              } catch {
-                                // ignore
-                              }
-                            }}
-                          >
-                            <Plus className="h-4 w-4" /> Create new: <em>"{customerQ}"</em>
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    <p className="text-xs text-muted-foreground mt-1.5">Type name or mobile — leave blank for walk-in</p>
-                  </div>
-                )}
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <User className="h-4 w-4" /> Customer
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="relative">
+                <CustomerSection setValue={setValue} />
               </CardContent>
             </Card>
 
@@ -491,7 +696,8 @@ export function TransactionFormPage() {
                 <CardTitle className="text-sm">Items / Products</CardTitle>
                 <div className="flex gap-2">
                   {isExchange && (
-                    <Button type="button" size="sm" variant="outline" onClick={() => addEmptyItem(true)} className="text-xs h-8 text-emerald-700 border-emerald-300">
+                    <Button type="button" size="sm" variant="outline" onClick={() => addEmptyItem(true)}
+                      className="text-xs h-8 text-emerald-700 border-emerald-300">
                       + Exchange Item
                     </Button>
                   )}
@@ -500,14 +706,14 @@ export function TransactionFormPage() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-3 relative">
                 {!isRepair && (
-                  <ProductSearchInput onSelect={handleProductSelect} />
+                  <ProductSearchInput todayRates={todayRates as Record<string, string>} onSelect={handleProductSelect} />
                 )}
 
                 {fields.length === 0 && !isRepair && (
                   <div className="rounded-lg border-2 border-dashed border-border py-8 text-center text-muted-foreground text-sm">
-                    Search or add items above
+                    Search by name or SKU, or add manually
                   </div>
                 )}
 
@@ -520,6 +726,7 @@ export function TransactionFormPage() {
                     setValue={setValue}
                     remove={() => remove(index)}
                     isExchange={watch(`items.${index}.isExchangeItem`)}
+                    todayRates={todayRates as Record<string, string>}
                   />
                 ))}
               </CardContent>
@@ -553,7 +760,11 @@ export function TransactionFormPage() {
                     </div>
                     <div className="space-y-1.5">
                       <Label>Expected Delivery</Label>
-                      <Input {...register('repairDeliveryDate')} type="date" />
+                      <DatePicker
+                        value={repairDeliveryDate}
+                        onChange={(d) => setValue('repairDeliveryDate', d)}
+                        placeholder="Pick delivery date"
+                      />
                     </div>
                     <div className="space-y-1.5 col-span-2">
                       <Label>Repair Charge (₹)</Label>
@@ -565,24 +776,32 @@ export function TransactionFormPage() {
             )}
           </div>
 
-          {/* ── Right column — Summary & Payment ── */}
+          {/* ── Right column ── */}
           <div className="space-y-5">
-            {/* Today's rates */}
+
+            {/* Today's central rates (read-only info) */}
             <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">Today's Rates</CardTitle></CardHeader>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Lock className="h-3 w-3" /> Central Rates (Today)
+                </CardTitle>
+              </CardHeader>
               <CardContent className="space-y-1">
-                {(Object.entries(todayRates) as [string, string | null][])
-                  .filter(([, v]) => v !== null)
+                {Object.entries(todayRates).length === 0 && (
+                  <p className="text-xs text-muted-foreground">No rates configured. Set them in Settings → Metal Rates.</p>
+                )}
+                {(Object.entries(todayRates) as [string, string][])
+                  .filter(([, v]) => v)
                   .map(([key, val]) => (
                     <div key={key} className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">{key.replace('_', ' ').toUpperCase()}</span>
-                      <span className="font-medium">₹{parseFloat(val!).toLocaleString('en-IN')}/g</span>
+                      <span className="text-muted-foreground capitalize">{key.replace(/_/g, ' ')}</span>
+                      <span className="font-semibold">₹{parseFloat(val).toLocaleString('en-IN')}/g</span>
                     </div>
                   ))}
               </CardContent>
             </Card>
 
-            {/* Totals */}
+            {/* Order Summary */}
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm">Order Summary</CardTitle></CardHeader>
               <CardContent className="space-y-3">
@@ -598,24 +817,19 @@ export function TransactionFormPage() {
 
                   {/* GST toggle */}
                   <div className="flex items-center justify-between pt-1">
-                    <Label className="text-sm cursor-pointer">Include GST</Label>
+                    <Label className="text-sm cursor-pointer">Include GST (3%)</Label>
                     <Switch
                       checked={gstEnabled}
                       onCheckedChange={(v) => {
                         setValue('gstEnabled', v);
-                        if (v) {
-                          const gst = subtotal * 0.03;
-                          setValue('taxAmount', gst.toFixed(2));
-                        } else {
-                          setValue('taxAmount', '0');
-                        }
+                        setValue('taxAmount', v ? ((subtotal - discount) * 0.03).toFixed(2) : '0');
                       }}
                     />
                   </div>
                   {gstEnabled && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground text-sm flex-1">GST Amount (₹)</span>
-                      <Input {...register('taxAmount')} className="w-24 h-7 text-right text-sm" />
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="flex-1">GST (3% on ₹{(subtotal - discount).toFixed(0)})</span>
+                      <span className="font-semibold text-foreground">₹{((subtotal - discount) * 0.03).toFixed(2)}</span>
                     </div>
                   )}
 
@@ -630,7 +844,7 @@ export function TransactionFormPage() {
                   <div className="space-y-1.5">
                     <Label className="text-xs">Payment Method</Label>
                     <Select onValueChange={(v) => setValue('paymentMethod', v as any)}>
-                      <SelectTrigger className="h-9"><SelectValue placeholder="Select method" /></SelectTrigger>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select method" /></SelectTrigger>
                       <SelectContent>
                         {['cash', 'card', 'upi', 'bank_transfer', 'cheque', 'mixed'].map((m) => (
                           <SelectItem key={m} value={m} className="capitalize">{m.replace('_', ' ')}</SelectItem>
@@ -641,7 +855,7 @@ export function TransactionFormPage() {
                   <div className="space-y-1.5">
                     <Label className="text-xs">Payment Status</Label>
                     <Select defaultValue="unpaid" onValueChange={(v) => setValue('paymentStatus', v as any)}>
-                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="paid">Paid in Full</SelectItem>
                         <SelectItem value="partial">Partial Payment</SelectItem>
@@ -651,18 +865,23 @@ export function TransactionFormPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs">Amount Paid (₹)</Label>
-                    <Input {...register('amountPaid')} placeholder="0.00" className="h-9" />
+                    <Input {...register('amountPaid')} placeholder="0.00" className="h-9 text-sm" />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Notes + Date */}
+            {/* Date & Notes */}
             <Card>
               <CardContent className="pt-4 space-y-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Transaction Date</Label>
-                  <Input {...register('transactionDate')} type="datetime-local" className="h-9 text-sm" />
+                  <DatePicker
+                    value={transactionDate}
+                    onChange={(d) => setValue('transactionDate', d)}
+                    placeholder="Pick transaction date"
+                    disabled={(d) => d > new Date()}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Notes</Label>
@@ -672,18 +891,10 @@ export function TransactionFormPage() {
             </Card>
 
             {/* Submit */}
-            <Button
-              type="submit"
-              variant="gold"
-              className="w-full"
-              size="lg"
-              disabled={mutation.isPending}
-            >
-              {mutation.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
-              ) : (
-                `Create ${meta.label}`
-              )}
+            <Button type="submit" variant="gold" className="w-full" size="lg" disabled={mutation.isPending}>
+              {mutation.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+                : `Create ${meta.label}`}
             </Button>
           </div>
         </div>

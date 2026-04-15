@@ -18,6 +18,22 @@ import { formatCurrency, formatDateTime, formatWeight } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { TRANSACTION_TYPE_LABELS } from '@jever/shared';
 
+async function downloadInvoice(invoiceId: string, invoiceNo: string) {
+  try {
+    const res = await api.get(`/invoices/${invoiceId}/download`, {
+      responseType: 'blob',
+    });
+    const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${invoiceNo}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    toast({ variant: 'destructive', title: 'Download failed' });
+  }
+}
+
 const STATUS_ICON: Record<string, React.ElementType> = {
   completed: CheckCircle,
   in_progress: Clock,
@@ -199,12 +215,15 @@ export function TransactionDetailPage() {
               <a href={txn.invoice.pdfUrl} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" size="sm"><Eye className="h-4 w-4" /> View PDF</Button>
               </a>
-              {/* Download: server sets Content-Disposition: attachment */}
-              <a href={`/api/invoices/${txn.invoice.id}/download`}>
-                <Button variant="outline" size="sm" className="text-gold-700 border-gold-300 hover:bg-gold-50">
-                  <Download className="h-4 w-4" /> Download PDF
-                </Button>
-              </a>
+              {/* Download: fetch with auth token */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-gold-700 border-gold-300 hover:bg-gold-50"
+                onClick={() => downloadInvoice(txn.invoice.id, txn.invoice.invoiceNo)}
+              >
+                <Download className="h-4 w-4" /> Download PDF
+              </Button>
             </>
           )}
           {txn.customer?.phone && txn.invoice && (

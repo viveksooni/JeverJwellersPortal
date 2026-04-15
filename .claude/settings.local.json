@@ -28,7 +28,19 @@
       "Bash(cmd /c \"for /f \\\\\"tokens=5\\\\\" %a in \\('netstat -ano ^| findstr :5174 ^| findstr LISTENING'\\) do taskkill /PID %a /F\")",
       "Bash(cmd /c \"for /f \\\\\"tokens=5\\\\\" %a in \\('netstat -ano ^| findstr :3001 ^| findstr LISTENING'\\) do taskkill /PID %a /F\")",
       "mcp__Claude_in_Chrome__tabs_context_mcp",
-      "Bash(node -e \"const path=require\\('path'\\); console.log\\('cwd:', process.cwd\\(\\)\\); console.log\\('resolve:', path.resolve\\('./uploads','invoices','test.pdf'\\)\\);\")"
+      "Bash(node -e \"const path=require\\('path'\\); console.log\\('cwd:', process.cwd\\(\\)\\); console.log\\('resolve:', path.resolve\\('./uploads','invoices','test.pdf'\\)\\);\")",
+      "Bash(npx tsc:*)",
+      "Read(//tmp/**)",
+      "Bash(curl -s http://localhost:3001/api/auth/me)",
+      "Bash(dir \"C:/Users/Asus/Desktop/Vivek/Inventory-tracker/Jever_jwellers/apps/admin/src/components/ui/\")",
+      "Bash(start cmd:*)",
+      "Bash(timeout 8 curl -s \"http://localhost:5173\")",
+      "Bash(curl -s http://localhost:5173/src/pages/transactions/TransactionsPage.tsx)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:3001/api/invoices\" -H \"Authorization: Bearer bad\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \" %{http_code}\" http://localhost:3001/api/auth/me)",
+      "Bash(xargs grep:*)",
+      "Bash(cat \"C:/Users/Asus/Desktop/Vivek/Inventory-tracker/Jever_jwellers/nginx/\"*.conf)"
     ]
   }
 }

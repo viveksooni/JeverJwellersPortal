@@ -1,0 +1,23 @@
+{
+  "name": "jever-jwellers",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npx turbo run dev",
+    "build": "npx turbo run build",
+    "lint": "npx turbo run lint",
+    "clean": "npx turbo run clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3"
+  },
+  "packageManager": "npm@11.8.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

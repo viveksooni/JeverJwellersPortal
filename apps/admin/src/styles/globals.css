@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 30% 98%;
+    --foreground: 28 25% 12%;
+
+    --card: 40 20% 97%;
+    --card-foreground: 28 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 28 25% 12%;
+
+    --primary: 38 67% 48%;       /* #C9972A antique gold */
+    --primary-foreground: 40 100% 98%;
+
+    --secondary: 38 40% 92%;
+    --secondary-foreground: 38 50% 25%;
+
+    --muted: 38 20% 94%;
+    --muted-foreground: 28 15% 45%;
+
+    --accent: 38 55% 88%;
+    --accent-foreground: 38 70% 25%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 38 25% 87%;
+    --input: 38 25% 87%;
+    --ring: 38 67% 48%;
+
+    --radius: 0.5rem;
+
+    /* Sidebar — dark charcoal with gold accents */
+    --sidebar-background: 28 20% 9%;
+    --sidebar-foreground: 38 25% 80%;
+    --sidebar-primary: 38 67% 48%;
+    --sidebar-primary-foreground: 40 100% 98%;
+    --sidebar-accent: 28 15% 15%;
+    --sidebar-accent-foreground: 38 35% 88%;
+    --sidebar-border: 28 15% 17%;
+    --sidebar-ring: 38 67% 48%;
+  }
+
+  .dark {
+    --background: 28 20% 8%;
+    --foreground: 38 20% 90%;
+    --card: 28 18% 11%;
+    --card-foreground: 38 20% 90%;
+    --popover: 28 18% 11%;
+    --popover-foreground: 38 20% 90%;
+    --primary: 38 67% 55%;
+    --primary-foreground: 28 25% 8%;
+    --secondary: 28 15% 18%;
+    --secondary-foreground: 38 20% 85%;
+    --muted: 28 15% 16%;
+    --muted-foreground: 38 15% 55%;
+    --accent: 28 18% 20%;
+    --accent-foreground: 38 35% 85%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 28 15% 20%;
+    --input: 28 15% 20%;
+    --ring: 38 67% 55%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  h1, h2, h3 {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+  }
+}
+
+@layer utilities {
+  .font-heading {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+  }
+
+  .text-gold {
+    color: #C9972A;
+  }
+
+  .gold-gradient {
+    background: linear-gradient(135deg, #e8c06a 0%, #C9972A 50%, #8B6914 100%);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+}
+
+/* Calendar heatmap styles */
+.react-calendar-heatmap .color-empty { fill: hsl(38 20% 92%); }
+.react-calendar-heatmap .color-scale-1 { fill: #f5de99; }
+.react-calendar-heatmap .color-scale-2 { fill: #efc65f; }
+.react-calendar-heatmap .color-scale-3 { fill: #C9972A; }
+.react-calendar-heatmap .color-scale-4 { fill: #8B6914; }
+.react-calendar-heatmap text { font-size: 8px; fill: hsl(var(--muted-foreground)); }

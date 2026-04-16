@@ -30,27 +30,28 @@ const productSchema = z.object({
   attributes: z.record(z.unknown()).default({}),
 });
 
+// Convert empty string → null for any field (prevents NUMERIC cast errors in PG)
+const emptyToNull = (v: unknown) => (v === '' ? null : v);
+const emptyToUndefined = (v: unknown) => (v === '' || v === null || v === undefined ? undefined : v);
+
 // Looser schema for PUT — handles empty strings, nulls, missing attributes
 const productUpdateSchema = z.object({
   categoryId: z.preprocess(
-    (v) => (v === '' || v === null || v === undefined) ? undefined : Number(v),
-    z.number().optional()
+    emptyToUndefined,
+    z.coerce.number().optional()
   ),
   name: z.string().min(1).max(200).optional(),
-  sku: z.preprocess(
-    (v) => (v === '' ? null : v),
-    z.string().max(100).nullable().optional()
-  ),
-  description: z.string().nullable().optional(),
-  metalType: z.string().nullable().optional(),
-  purity: z.string().nullable().optional(),
-  grossWeightG: z.string().nullable().optional(),
-  netWeightG: z.string().nullable().optional(),
-  stoneType: z.string().nullable().optional(),
-  stoneWeightCt: z.string().nullable().optional(),
-  makingCharge: z.string().nullable().optional(),
+  sku:           z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
+  description:   z.preprocess(emptyToNull, z.string().nullable().optional()),
+  metalType:     z.preprocess(emptyToNull, z.string().nullable().optional()),
+  purity:        z.preprocess(emptyToNull, z.string().nullable().optional()),
+  grossWeightG:  z.preprocess(emptyToNull, z.string().nullable().optional()),
+  netWeightG:    z.preprocess(emptyToNull, z.string().nullable().optional()),
+  stoneType:     z.preprocess(emptyToNull, z.string().nullable().optional()),
+  stoneWeightCt: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  makingCharge:  z.preprocess(emptyToNull, z.string().nullable().optional()),
   makingType: z.preprocess(
-    (v) => (v === '' || v === null || v === undefined) ? undefined : v,
+    emptyToUndefined,
     z.enum(['flat', 'per_gram', 'percentage']).optional()
   ),
   attributes: z.record(z.unknown()).optional(),

@@ -9,12 +9,25 @@ import { AppError } from '../middleware/errorHandler.js';
 const router = Router();
 router.use(authenticate);
 
+// Convert empty string → null (prevents issues with nullable DB columns)
+const emptyToNull = (v: unknown) => (v === '' ? null : v);
+const emptyToUndefined = (v: unknown) => (v === '' || v === null || v === undefined ? undefined : v);
+
 const customerSchema = z.object({
   name: z.string().min(1).max(150),
   phone: z.string().max(20).optional(),
   email: z.string().email().optional().or(z.literal('')),
   address: z.string().optional(),
   notes: z.string().optional(),
+});
+
+// Looser schema for PUT — handles empty strings and nulls
+const customerUpdateSchema = z.object({
+  name: z.preprocess(emptyToUndefined, z.string().min(1).max(150).optional()),
+  phone: z.preprocess(emptyToNull, z.string().max(20).nullable().optional()),
+  email: z.preprocess(emptyToNull, z.string().email().nullable().optional()),
+  address: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  notes: z.preprocess(emptyToNull, z.string().nullable().optional()),
 });
 
 // List customers
@@ -81,7 +94,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 // Update customer
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const data = customerSchema.partial().parse(req.body);
+    const parsed = customerUpdateSchema.parse(req.body);
+    // Strip undefined so we only update fields that were actually sent
+    const data = Object.fromEntries(
+      Object.entries(parsed).filter(([, v]) => v !== undefined)
+    );
     const [customer] = await db
       .update(customers)
       .set({ ...data, updatedAt: new Date() })

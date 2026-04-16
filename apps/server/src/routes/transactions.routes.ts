@@ -16,15 +16,19 @@ import { generateTransactionNo } from '../utils/invoiceNumber.js';
 const router = Router();
 router.use(authenticate);
 
+// Convert empty string → null (prevents NUMERIC cast errors in PG)
+const emptyToNull = (v: unknown) => (v === '' ? null : v);
+const emptyToUndefined = (v: unknown) => (v === '' || v === null || v === undefined ? undefined : v);
+
 const itemSchema = z.object({
-  productId: z.string().uuid().optional(),
+  productId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
   productName: z.string().min(1),
   quantity: z.number().int().min(1).default(1),
-  weightG: z.string().optional(),
-  purity: z.string().optional(),
-  ratePerGram: z.string().optional(),
-  makingCharge: z.string().optional(),
-  stoneCharge: z.string().default('0'),
+  weightG: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  purity: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  ratePerGram: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  makingCharge: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  stoneCharge: z.preprocess((v) => (v === '' || v === null || v === undefined ? '0' : v), z.string()),
   unitPrice: z.string(),
   totalPrice: z.string(),
   isExchangeItem: z.boolean().default(false),
@@ -32,28 +36,28 @@ const itemSchema = z.object({
 
 const transactionSchema = z.object({
   type: z.enum(['sale', 'purchase', 'repair', 'exchange', 'custom_order']),
-  customerId: z.string().uuid().optional(),
+  customerId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
   totalAmount: z.string(),
-  discountAmount: z.string().default('0'),
-  taxAmount: z.string().default('0'),
+  discountAmount: z.preprocess((v) => (v === '' || v === null || v === undefined ? '0' : v), z.string()),
+  taxAmount: z.preprocess((v) => (v === '' || v === null || v === undefined ? '0' : v), z.string()),
   finalAmount: z.string(),
-  paymentMethod: z.enum(['cash', 'card', 'upi', 'bank_transfer', 'cheque', 'mixed']).optional(),
-  paymentStatus: z.enum(['unpaid', 'partial', 'paid']).default('unpaid'),
-  amountPaid: z.string().default('0'),
-  notes: z.string().optional(),
-  goldRate: z.string().optional(),
-  silverRate: z.string().optional(),
-  transactionDate: z.string().optional(),
+  paymentMethod: z.preprocess(emptyToUndefined, z.enum(['cash', 'card', 'upi', 'bank_transfer', 'cheque', 'mixed']).optional()),
+  paymentStatus: z.preprocess((v) => (v === '' || v === null || v === undefined ? 'unpaid' : v), z.enum(['unpaid', 'partial', 'paid'])),
+  amountPaid: z.preprocess((v) => (v === '' || v === null || v === undefined ? '0' : v), z.string()),
+  notes: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  goldRate: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  silverRate: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  transactionDate: z.preprocess(emptyToNull, z.string().nullable().optional()),
   items: z.array(itemSchema).min(0),
   repairOrder: z
     .object({
       itemDescription: z.string().min(1),
-      issueDescribed: z.string().optional(),
-      repairType: z.string().optional(),
-      estimatedDays: z.number().int().optional(),
-      deliveryDate: z.string().optional(),
-      repairCharge: z.string().optional(),
-      actualWeightG: z.string().optional(),
+      issueDescribed: z.preprocess(emptyToNull, z.string().nullable().optional()),
+      repairType: z.preprocess(emptyToNull, z.string().nullable().optional()),
+      estimatedDays: z.preprocess(emptyToUndefined, z.number().int().optional()),
+      deliveryDate: z.preprocess(emptyToNull, z.string().nullable().optional()),
+      repairCharge: z.preprocess(emptyToNull, z.string().nullable().optional()),
+      actualWeightG: z.preprocess(emptyToNull, z.string().nullable().optional()),
     })
     .optional(),
 });
@@ -197,13 +201,17 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const schema = z.object({
-      status: z.enum(['pending', 'completed', 'cancelled', 'in_progress']).optional(),
-      paymentStatus: z.enum(['unpaid', 'partial', 'paid']).optional(),
-      amountPaid: z.string().optional(),
-      paymentMethod: z.string().optional(),
-      notes: z.string().optional(),
+      status: z.preprocess(emptyToUndefined, z.enum(['pending', 'completed', 'cancelled', 'in_progress']).optional()),
+      paymentStatus: z.preprocess(emptyToUndefined, z.enum(['unpaid', 'partial', 'paid']).optional()),
+      amountPaid: z.preprocess(emptyToNull, z.string().nullable().optional()),
+      paymentMethod: z.preprocess(emptyToNull, z.string().nullable().optional()),
+      notes: z.preprocess(emptyToNull, z.string().nullable().optional()),
     });
-    const data = schema.parse(req.body);
+    const parsed = schema.parse(req.body);
+    // Strip undefined keys so we only touch fields that were sent
+    const data = Object.fromEntries(
+      Object.entries(parsed).filter(([, v]) => v !== undefined)
+    );
     const [txn] = await db
       .update(transactions)
       .set({ ...data, updatedAt: new Date() })
@@ -220,11 +228,15 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 router.patch('/:id/repair', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const schema = z.object({
-      status: z.enum(['received', 'in_progress', 'ready', 'delivered']).optional(),
-      technicianNotes: z.string().optional(),
-      deliveryDate: z.string().optional(),
+      status: z.preprocess(emptyToUndefined, z.enum(['received', 'in_progress', 'ready', 'delivered']).optional()),
+      technicianNotes: z.preprocess(emptyToNull, z.string().nullable().optional()),
+      deliveryDate: z.preprocess(emptyToNull, z.string().nullable().optional()),
+      repairCharge: z.preprocess(emptyToNull, z.string().nullable().optional()),
     });
-    const data = schema.parse(req.body);
+    const parsed = schema.parse(req.body);
+    const data = Object.fromEntries(
+      Object.entries(parsed).filter(([, v]) => v !== undefined)
+    );
     const [order] = await db
       .update(repairOrders)
       .set(data)

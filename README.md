@@ -1,7 +1,5 @@
 # Jever Jwellers — Admin Panel
 
-Full-stack jewelry shop management system. Invoicing, inventory, customers, analytics, and WhatsApp integration.
-
 ---
 
 ## Stack

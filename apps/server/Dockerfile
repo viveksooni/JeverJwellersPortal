@@ -3,7 +3,7 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json turbo.json ./
+COPY package.json turbo.json ./
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY apps/server/package.json     ./apps/server/package.json
 
@@ -31,6 +31,9 @@ RUN node -e " \
 
 # Build server — @jever/shared is only used for types (erased at compile time)
 RUN npm run build --workspace=apps/server
+
+# Copy migration files into dist (tsc only compiles .ts, not .sql/.json)
+RUN cp -r apps/server/src/db/migrations apps/server/dist/db/migrations
 
 # ─── Stage 2: Production runner ───────────────────────────────────────────────
 FROM node:20-alpine AS runner

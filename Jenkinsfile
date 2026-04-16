@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    triggers {
+        githubPush()
+    }
+
     environment {
         COMPOSE_FILE = 'docker-compose.prod.yml'
     }
@@ -28,7 +32,7 @@ pipeline {
     steps {
         withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
             sh """
-                docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
+                docker-compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
                     build --no-cache
             """
         }
@@ -39,7 +43,7 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
                     sh """
-                        docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
+                        docker-compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
                             up -d
                     """
                 }
@@ -76,10 +80,10 @@ pipeline {
             echo '❌ Rolling back...'
             withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
                 sh """
-                    docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} down
+                    docker-compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} down
                     docker tag jever_server:rollback jever_server:latest || true
                     docker tag jever_admin:rollback  jever_admin:latest  || true
-                    docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} up -d --no-build
+                    docker-compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} up -d --no-build
                 """
             }
         }

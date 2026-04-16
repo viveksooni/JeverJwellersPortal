@@ -1,4 +1,4 @@
-import type { MetalRateKey } from '../constants/jewelry';
+import type { MetalRateKey } from '../constants/jewelry.js';
 
 export interface MetalRate {
   id: number;

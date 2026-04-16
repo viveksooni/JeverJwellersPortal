@@ -1,5 +1,5 @@
-import type { Product } from './product';
-import type { InventoryMovementType } from '../constants/jewelry';
+import type { Product } from './product.js';
+import type { InventoryMovementType } from '../constants/jewelry.js';
 
 export interface InventoryItem {
   id: string;

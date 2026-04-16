@@ -4,9 +4,9 @@ import type {
   PaymentMethod,
   PaymentStatus,
   RepairStatus,
-} from '../constants/jewelry';
-import type { Customer } from './customer';
-import type { Product } from './product';
+} from '../constants/jewelry.js';
+import type { Customer } from './customer.js';
+import type { Product } from './product.js';
 
 export interface TransactionItem {
   id: string;

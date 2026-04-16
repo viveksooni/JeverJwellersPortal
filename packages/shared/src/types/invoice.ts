@@ -1,5 +1,5 @@
-import type { Transaction } from './transaction';
-import type { Customer } from './customer';
+import type { Transaction } from './transaction.js';
+import type { Customer } from './customer.js';
 
 export interface Invoice {
   id: string;

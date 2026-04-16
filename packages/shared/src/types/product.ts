@@ -2,7 +2,7 @@ import type {
   MetalType,
   StoneType,
   MakingChargeType,
-} from '../constants/jewelry';
+} from '../constants/jewelry.js';
 
 export interface Category {
   id: number;

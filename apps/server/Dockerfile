@@ -3,34 +3,24 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy root workspace manifests (layer-cache friendly)
 COPY package.json package-lock.json turbo.json ./
-
-# Copy only the package.json files for every workspace so npm can
-# resolve the full workspace graph without copying all source code yet.
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY apps/server/package.json     ./apps/server/package.json
 
-# Stub for apps/admin — prevents npm from erroring on the "apps/*" glob
-# since we're not building the admin in this image.
+# Stub admin workspace so npm doesn't error on the "apps/*" glob
 RUN mkdir -p apps/admin && \
     echo '{"name":"@jever/admin","version":"1.0.0","private":true}' \
     > apps/admin/package.json
 
-# Install ALL workspace dependencies (incl. devDeps needed for tsc).
-# Use npm install so npm can deduplicate @types/express-serve-static-core
-# across workspaces — duplicate type copies break tsc even with skipLibCheck.
 RUN npm install && npm dedupe
 
-# Copy the actual source trees
 COPY packages/ ./packages/
 COPY apps/server/ ./apps/server/
 
-# ── 1. Build shared (ESM output + .d.ts declarations) ────────────────────────
+# Build shared first (needed for TypeScript type checking of server)
 RUN npm run build --workspace=packages/shared
 
-# Patch shared/package.json so server's tsc resolves to the compiled dist,
-# not the raw TypeScript source file used in dev.
+# Patch shared/package.json so tsc resolves to compiled dist, not .ts source
 RUN node -e " \
   const fs = require('fs'); \
   const p = JSON.parse(fs.readFileSync('packages/shared/package.json','utf8')); \
@@ -39,32 +29,25 @@ RUN node -e " \
   fs.writeFileSync('packages/shared/package.json', JSON.stringify(p, null, 2)); \
 "
 
-# ── 2. Build server ───────────────────────────────────────────────────────────
+# Build server — @jever/shared is only used for types (erased at compile time)
 RUN npm run build --workspace=apps/server
 
 # ─── Stage 2: Production runner ───────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
-# Chromium for Puppeteer PDF generation
 RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    font-noto
+    chromium nss freetype harfbuzz \
+    ca-certificates ttf-freefont font-noto
 
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 WORKDIR /app
 
-# Copy compiled server output
+# Copy compiled server — no @jever/shared import remains in the JS output
 COPY --from=builder /app/apps/server/dist ./dist
 
-# Copy server package.json, strip @jever/shared so npm doesn't try
-# to fetch the private workspace package from the registry.
+# Install production deps (@jever/shared removed — it has no runtime presence)
 COPY apps/server/package.json ./package.json
 RUN node -e " \
   const fs = require('fs'); \
@@ -72,28 +55,9 @@ RUN node -e " \
   delete p.dependencies['@jever/shared']; \
   fs.writeFileSync('package.json', JSON.stringify(p, null, 2)); \
 "
-
-# Install production deps first (creates node_modules cleanly)
 RUN npm install --omit=dev
 
-# Copy shared package INTO node_modules AFTER npm install so npm
-# does not overwrite or ignore the manually placed package.
-RUN mkdir -p ./node_modules/@jever/shared
-COPY --from=builder /app/packages/shared/dist         ./node_modules/@jever/shared/dist
-COPY --from=builder /app/packages/shared/package.json ./node_modules/@jever/shared/package.json
-
-# Patch the copied package.json so Node resolves to dist/ at runtime
-RUN node -e " \
-  const fs = require('fs'); \
-  const p = JSON.parse(fs.readFileSync('node_modules/@jever/shared/package.json','utf8')); \
-  p.main  = './dist/index.js'; \
-  p.types = './dist/index.d.ts'; \
-  fs.writeFileSync('node_modules/@jever/shared/package.json', JSON.stringify(p, null, 2)); \
-"
-
-# Upload directories
 RUN mkdir -p uploads/invoices uploads/products uploads/logo
 
 EXPOSE 3001
-
 CMD ["node", "dist/index.js"]

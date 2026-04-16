@@ -5,7 +5,14 @@ import { metalRates } from '../db/schema.js';
 import { eq, lte, desc, and } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
-import { METAL_RATE_KEYS } from '@jever/shared';
+
+// Inlined from @jever/shared — avoids a runtime ESM package resolution issue
+// in the production Docker image. Keep in sync with packages/shared/src/constants/jewelry.ts
+const METAL_RATE_KEYS = [
+  'gold_24k', 'gold_22k', 'gold_18k', 'gold_14k',
+  'silver_999', 'silver_925', 'platinum_950',
+] as const;
+type MetalRateKey = typeof METAL_RATE_KEYS[number];
 
 const router = Router();
 router.use(authenticate);

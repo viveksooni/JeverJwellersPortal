@@ -18,7 +18,7 @@ RUN mkdir -p apps/admin && \
     > apps/admin/package.json
 
 # Install ALL workspace dependencies (incl. devDeps needed for tsc).
-# Use npm install (not ci) so npm can deduplicate @types/express-serve-static-core
+# Use npm install so npm can deduplicate @types/express-serve-static-core
 # across workspaces — duplicate type copies break tsc even with skipLibCheck.
 RUN npm install && npm dedupe
 
@@ -26,7 +26,7 @@ RUN npm install && npm dedupe
 COPY packages/ ./packages/
 COPY apps/server/ ./apps/server/
 
-# ── 1. Build shared (CommonJS output + .d.ts declarations) ───────────────────
+# ── 1. Build shared (ESM output + .d.ts declarations) ────────────────────────
 RUN npm run build --workspace=packages/shared
 
 # Patch shared/package.json so server's tsc resolves to the compiled dist,
@@ -63,13 +63,8 @@ WORKDIR /app
 # Copy compiled server output
 COPY --from=builder /app/apps/server/dist ./dist
 
-# Copy shared package into node_modules (pre-built, no registry fetch needed)
-RUN mkdir -p ./node_modules/@jever/shared
-COPY --from=builder /app/packages/shared/dist         ./node_modules/@jever/shared/dist
-COPY --from=builder /app/packages/shared/package.json ./node_modules/@jever/shared/package.json
-
-# Copy server package.json, strip @jever/shared from deps so npm install
-# does not try to fetch the private workspace package from the registry.
+# Copy server package.json, strip @jever/shared so npm doesn't try
+# to fetch the private workspace package from the registry.
 COPY apps/server/package.json ./package.json
 RUN node -e " \
   const fs = require('fs'); \
@@ -77,7 +72,24 @@ RUN node -e " \
   delete p.dependencies['@jever/shared']; \
   fs.writeFileSync('package.json', JSON.stringify(p, null, 2)); \
 "
+
+# Install production deps first (creates node_modules cleanly)
 RUN npm install --omit=dev
+
+# Copy shared package INTO node_modules AFTER npm install so npm
+# does not overwrite or ignore the manually placed package.
+RUN mkdir -p ./node_modules/@jever/shared
+COPY --from=builder /app/packages/shared/dist         ./node_modules/@jever/shared/dist
+COPY --from=builder /app/packages/shared/package.json ./node_modules/@jever/shared/package.json
+
+# Patch the copied package.json so Node resolves to dist/ at runtime
+RUN node -e " \
+  const fs = require('fs'); \
+  const p = JSON.parse(fs.readFileSync('node_modules/@jever/shared/package.json','utf8')); \
+  p.main  = './dist/index.js'; \
+  p.types = './dist/index.d.ts'; \
+  fs.writeFileSync('node_modules/@jever/shared/package.json', JSON.stringify(p, null, 2)); \
+"
 
 # Upload directories
 RUN mkdir -p uploads/invoices uploads/products uploads/logo

@@ -1,0 +1,5 @@
+# This file overrides .gitignore for npm pack.
+# We must include dist/ in the packed tarball so the server
+# can import @jever/shared at runtime in production.
+node_modules
+*.log

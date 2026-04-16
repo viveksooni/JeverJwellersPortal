@@ -3,7 +3,6 @@ pipeline {
 
     environment {
         COMPOSE_FILE = 'docker-compose.prod.yml'
-        ENV_FILE     = '/run/secrets/jever-env'   // see note below
     }
 
     stages {
@@ -29,7 +28,7 @@ pipeline {
     steps {
         withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
             sh """
-                docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file ${ENV_FILE} \
+                docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
                     build --no-cache
             """
         }
@@ -38,10 +37,12 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                sh """
-                    docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file ${ENV_FILE} \
-                        up -d
-                """
+                withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
+                    sh """
+                        docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
+                            up -d
+                    """
+                }
             }
         }
 
@@ -73,12 +74,14 @@ pipeline {
         }
         failure {
             echo '❌ Rolling back...'
-            sh """
-                docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file ${ENV_FILE} down
-                docker tag jever_server:rollback jever_server:latest || true
-                docker tag jever_admin:rollback  jever_admin:latest  || true
-                docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file ${ENV_FILE} up -d --no-build
-            """
+            withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
+                sh """
+                    docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} down
+                    docker tag jever_server:rollback jever_server:latest || true
+                    docker tag jever_admin:rollback  jever_admin:latest  || true
+                    docker compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} up -d --no-build
+                """
+            }
         }
     }
 }

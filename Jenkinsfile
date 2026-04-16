@@ -8,13 +8,23 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 echo '── Pulling latest code ──'
-                git branch: 'main',
-                    credentialsId: 'github-credentials',
-                    url: 'https://github.com/vivek-soni/JeverJwellersPortal.git'
+                sh """
+                    cd ${PROJECT_DIR}
+                    git pull origin main
+                """
+            }
+        }
+
+        stage('Tag Previous Images') {
+            steps {
+                echo '── Tagging current images as rollback targets ──'
+                sh """
+                    docker tag jever_server:latest jever_server:rollback || true
+                    docker tag jever_admin:latest  jever_admin:rollback  || true
+                """
             }
         }
 
@@ -53,10 +63,13 @@ pipeline {
         stage('Health Check') {
             steps {
                 echo '── Checking API health ──'
-                sh """
-                    sleep 3
-                    curl -f http://127.0.0.1:3001/health || exit 1
-                """
+                // Retry 3 times with 5s gap before failing
+                retry(3) {
+                    sh """
+                        sleep 5
+                        curl -f http://127.0.0.1:3001/health || exit 1
+                    """
+                }
             }
         }
     }
@@ -64,17 +77,20 @@ pipeline {
     post {
         success {
             echo '✅ Deployment successful!'
+            // Clean up only old dangling images, scoped safely
+            sh 'docker image prune -f'
         }
         failure {
-            echo '❌ Deployment failed — rolling back'
+            echo '❌ Deployment failed — rolling back to previous images'
             sh """
                 cd ${PROJECT_DIR}
                 docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} \
+                    down
+                docker tag jever_server:rollback jever_server:latest || true
+                docker tag jever_admin:rollback  jever_admin:latest  || true
+                docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} \
                     up -d --no-build
             """
-        }
-        always {
-            sh 'docker system prune -f --filter "until=24h"'
         }
     }
 }

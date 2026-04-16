@@ -16,6 +16,10 @@
     "turbo": "^2.3.3",
     "typescript": "^5.7.3"
   },
+  "overrides": {
+    "@types/express-serve-static-core": "^4.19.0",
+    "@types/express": "^4.17.21"
+  },
   "packageManager": "npm@11.8.0",
   "engines": {
     "node": ">=20.0.0"

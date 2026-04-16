@@ -17,8 +17,10 @@ RUN mkdir -p apps/admin && \
     echo '{"name":"@jever/admin","version":"1.0.0","private":true}' \
     > apps/admin/package.json
 
-# Install ALL workspace dependencies (incl. devDeps needed for tsc)
-RUN npm ci
+# Install ALL workspace dependencies (incl. devDeps needed for tsc).
+# Use npm install (not ci) so npm can deduplicate @types/express-serve-static-core
+# across workspaces — duplicate type copies break tsc even with skipLibCheck.
+RUN npm install && npm dedupe
 
 # Copy the actual source trees
 COPY packages/ ./packages/

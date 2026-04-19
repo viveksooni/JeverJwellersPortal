@@ -430,7 +430,7 @@ async function main() {
     },
   ];
 
-  const insertedProducts = [];
+  const insertedProducts: (typeof schema.products.$inferSelect)[] = [];
   for (const def of productDefs) {
     const { images, ...productData } = def;
     // Determine tracking type: gold/diamond = per_piece, others = template

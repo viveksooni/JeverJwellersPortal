@@ -18,6 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -30,8 +31,9 @@ import type { TransactionType } from '@jever/shared';
 
 const itemSchema = z.object({
   productId: z.string().optional(),
+  pieceId: z.string().optional(),           // set when selling a specific piece
   productName: z.string().min(1, 'Item name required'),
-  metalType: z.string().optional(),          // gold | silver | platinum
+  metalType: z.string().optional(),
   quantity: z.coerce.number().int().min(1).default(1),
   weightG: z.string().optional(),
   purity: z.string().optional(),
@@ -289,31 +291,49 @@ function ProductSearchInput({ todayRates, onSelect }: {
 }) {
   const [q, setQ] = useState('');
   const [categoryId, setCategoryId] = useState('all');
-  const [open, setOpen] = useState(false);
+  const [metalType, setMetalType] = useState('all');
+  const [trackingType, setTrackingType] = useState('all');
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => api.get('/products/meta/categories').then((r) => r.data.data),
+    queryFn: () => api.get('/categories').then((r) => r.data.data),
     staleTime: 300_000,
   });
 
-  const { data: results = [] } = useQuery({
-    queryKey: ['product-search', q, categoryId],
-    queryFn: () => {
-      const params = new URLSearchParams({ limit: '12' });
-      if (q.length >= 1) params.set('search', q);
-      if (categoryId !== 'all') params.set('categoryId', categoryId);
-      return api.get(`/products?${params}`).then((r) => r.data.data);
-    },
-    enabled: q.length >= 1 || categoryId !== 'all',
+  const { data: metalTypes = [] } = useQuery({
+    queryKey: ['metal-types'],
+    queryFn: () => api.get('/settings/metal-types').then((r) => r.data.data),
+    staleTime: 300_000,
   });
 
+  const { data: results = [], isLoading } = useQuery({
+    queryKey: ['product-search-all', q, categoryId, metalType, trackingType],
+    queryFn: () => {
+      const params = new URLSearchParams({ limit: '200' });
+      if (q.length >= 1) params.set('search', q);
+      if (categoryId !== 'all') params.set('categoryId', categoryId);
+      if (metalType !== 'all') params.set('metalType', metalType);
+      return api.get(`/products?${params}`).then((r) => {
+        let data = r.data.data ?? [];
+        // Client-side tracking type filter (server doesn't support it yet)
+        if (trackingType !== 'all') {
+          data = data.filter((p: any) => p.trackingType === trackingType);
+        }
+        return data;
+      });
+    },
+    staleTime: 60_000,
+  });
+
+  const hasActiveFilters = categoryId !== 'all' || metalType !== 'all' || trackingType !== 'all' || q.length >= 1;
+
   return (
-    <div className="space-y-2">
-      <div className="flex gap-2">
-        {/* Category filter */}
+    <div className="space-y-3">
+      {/* ── Filter / search bar ── */}
+      <div className="flex flex-wrap gap-2">
+        {/* Category tabs as a Select */}
         <Select value={categoryId} onValueChange={setCategoryId}>
-          <SelectTrigger className="w-36 h-9 text-sm shrink-0">
+          <SelectTrigger className="w-36 h-8 text-xs shrink-0">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent>
@@ -324,61 +344,242 @@ function ProductSearchInput({ todayRates, onSelect }: {
           </SelectContent>
         </Select>
 
-        {/* Search by name or SKU */}
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Select value={metalType} onValueChange={setMetalType}>
+          <SelectTrigger className="w-28 h-8 text-xs shrink-0">
+            <SelectValue placeholder="Metal" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Metals</SelectItem>
+            {(metalTypes as any[]).map((m: any) => (
+              <SelectItem key={m.name} value={m.name}>{m.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={trackingType} onValueChange={setTrackingType}>
+          <SelectTrigger className="w-28 h-8 text-xs shrink-0">
+            <SelectValue placeholder="Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="per_piece">Per Piece</SelectItem>
+            <SelectItem value="template">Bulk / Template</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Text search */}
+        <div className="relative flex-1 min-w-[160px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
             placeholder="Search by name or SKU…"
-            className="pl-9 h-9 text-sm"
+            className="pl-9 h-8 text-sm"
             value={q}
-            onChange={(e) => { setQ(e.target.value); setOpen(true); }}
-            onFocus={() => setOpen(true)}
-            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            onChange={(e) => setQ(e.target.value)}
           />
         </div>
+
+        {hasActiveFilters && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground shrink-0"
+            onClick={() => { setCategoryId('all'); setMetalType('all'); setTrackingType('all'); setQ(''); }}
+          >
+            Clear
+          </Button>
+        )}
       </div>
 
-      {open && (results as any[]).length > 0 && (
-        <div className="absolute z-50 w-full mt-1 rounded-md border bg-popover shadow-lg max-h-72 overflow-y-auto">
-          {(results as any[]).map((p: any) => {
-            const rateKey = getRateKey(p.metalType, p.purity);
-            const rate = rateKey ? (todayRates[rateKey] ?? null) : null;
-            const stock = p.inventory?.quantity ?? 0;
+      {/* ── Always-visible product grid ── */}
+      <div className="rounded-md border border-border bg-background max-h-80 overflow-y-auto">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8 text-sm text-muted-foreground gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading products…
+          </div>
+        ) : (results as any[]).length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-sm text-muted-foreground gap-1">
+            <Gem className="h-6 w-6 opacity-40" />
+            <span>No products found.</span>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                className="text-gold-600 hover:underline text-xs mt-0.5"
+                onClick={() => { setCategoryId('all'); setMetalType('all'); setTrackingType('all'); setQ(''); }}
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-px bg-border">
+            {(results as any[]).map((p: any) => {
+              const rateKey = getRateKey(p.metalType, p.purity);
+              const rate = rateKey ? (todayRates[rateKey] ?? null) : null;
+              const isPerPiece = p.trackingType === 'per_piece';
+              const stock = p.inventory?.quantity ?? 0;
+              const outOfStock = stock === 0;
+              const stockLabel = isPerPiece ? `${stock} pcs` : `${stock}`;
+              const stockColor = outOfStock
+                ? 'text-red-500'
+                : stock <= 2
+                ? 'text-amber-500'
+                : 'text-emerald-600';
+
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onSelect(p, rate)}
+                  className={cn(
+                    'flex flex-col items-start gap-1.5 bg-background p-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    outOfStock && 'opacity-60',
+                  )}
+                >
+                  {/* Thumbnail */}
+                  <div className="w-full aspect-square rounded-md overflow-hidden bg-secondary flex items-center justify-center">
+                    {p.images?.[0] ? (
+                      <img src={p.images[0].url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Gem className="h-5 w-5 text-muted-foreground" />
+                    )}
+                  </div>
+
+                  {/* Name */}
+                  <p className="text-xs font-semibold leading-tight line-clamp-2 w-full">{p.name}</p>
+
+                  {/* SKU + purity */}
+                  <div className="flex flex-wrap items-center gap-1 w-full">
+                    {p.sku && (
+                      <span className="font-mono text-[10px] font-bold text-gold-600 truncate max-w-full">
+                        {p.sku}
+                      </span>
+                    )}
+                    {p.purity && (
+                      <span className="rounded bg-secondary px-1 py-px text-[9px] font-medium text-muted-foreground">
+                        {p.purity}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Stock count */}
+                  <div className="flex items-center justify-between w-full mt-auto">
+                    <span className={cn('text-[10px] font-semibold', stockColor)}>
+                      {outOfStock ? 'Out of stock' : stockLabel}
+                    </span>
+                    {isPerPiece && (
+                      <span className="text-[9px] text-amber-600 font-medium">piece →</span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Row count hint */}
+      {!isLoading && (results as any[]).length > 0 && (
+        <p className="text-[11px] text-muted-foreground text-right pr-0.5">
+          {(results as any[]).length} product{(results as any[]).length !== 1 ? 's' : ''}
+          {hasActiveFilters ? ' matched' : ' total'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Piece Picker Dialog ──────────────────────────────────────────────────────
+// Shown when adding a per-piece tracked product to a sale
+
+function PiecePickerDialog({
+  open, onClose, product, todayRates, onSelect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  product: any;
+  todayRates: Record<string, string>;
+  onSelect: (product: any, piece: any, rate: string | null) => void;
+}) {
+  const { data: pieces = [], isLoading } = useQuery({
+    queryKey: ['pieces', product?.id],
+    queryFn: () => api.get(`/pieces?productId=${product.id}`).then((r) => r.data.data),
+    enabled: !!product?.id && open,
+  });
+
+  const inStockPieces = pieces.filter((p: any) => p.status === 'in_stock');
+  const rateKey = product ? getRateKey(product.metalType, product.purity) : null;
+  const rate = rateKey ? (todayRates[rateKey] ?? null) : null;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Select Piece — {product?.name}</DialogTitle>
+          <p className="text-xs text-muted-foreground pt-1">
+            Choose the specific physical piece to sell. Each piece has its exact weight recorded.
+          </p>
+        </DialogHeader>
+
+        {isLoading && (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading pieces…
+          </div>
+        )}
+
+        {!isLoading && inStockPieces.length === 0 && (
+          <div className="text-center py-8 text-muted-foreground text-sm">
+            No in-stock pieces found for this product.
+            <br />Add pieces in Inventory → View Pieces.
+          </div>
+        )}
+
+        <div className="space-y-2 max-h-80 overflow-y-auto">
+          {inStockPieces.map((piece: any) => {
+            const metalPrice = rate && piece.grossWeightG
+              ? parseFloat(rate) * parseFloat(piece.grossWeightG)
+              : 0;
+            const makingRaw = parseFloat(product?.makingCharge ?? '0');
+            const makingType = product?.makingType ?? 'flat';
+            const makingValue =
+              makingType === 'per_gram' ? makingRaw * parseFloat(piece.grossWeightG ?? '0') :
+              makingType === 'percentage' ? (metalPrice * makingRaw) / 100 : makingRaw;
+            const estimatedPrice = metalPrice + makingValue;
+
             return (
               <button
-                key={p.id}
+                key={piece.id}
                 type="button"
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-accent text-sm border-b border-border/50 last:border-0"
-                onMouseDown={() => { onSelect(p, rate); setQ(''); setOpen(false); }}
+                className="w-full flex items-center justify-between rounded-lg border border-border hover:border-gold-400 hover:bg-gold-50 px-4 py-3 text-left transition-colors"
+                onClick={() => { onSelect(product, piece, rate); onClose(); }}
               >
-                {p.images?.[0] ? (
-                  <img src={p.images[0].url} alt="" className="h-10 w-10 rounded-md object-cover shrink-0" />
-                ) : (
-                  <div className="h-10 w-10 rounded-md bg-secondary flex items-center justify-center shrink-0">
-                    <Gem className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{p.name}</p>
-                  <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground mt-0.5">
-                    {p.sku && <span className="flex items-center gap-0.5"><Tag className="h-3 w-3" />{p.sku}</span>}
-                    {p.purity && <span>{p.purity}</span>}
-                    {p.grossWeightG && <span>{p.grossWeightG}g</span>}
-                    <span className={stock === 0 ? 'text-red-500' : stock <= 2 ? 'text-amber-500' : 'text-emerald-600'}>
-                      Stock: {stock}
-                    </span>
+                <div className="space-y-0.5">
+                  <p className="font-mono font-semibold text-gold-700 text-sm">{piece.tagNo ?? 'No Tag'}</p>
+                  <div className="flex gap-3 text-xs text-muted-foreground">
+                    <span>Gross: <strong className="text-foreground">{parseFloat(piece.grossWeightG ?? '0').toFixed(3)}g</strong></span>
+                    {piece.netWeightG && <span>Net: {parseFloat(piece.netWeightG).toFixed(3)}g</span>}
+                    <span>{piece.purity ?? product?.purity}</span>
                   </div>
                 </div>
-                <div className="text-right shrink-0">
-                  {rate && <p className="text-xs text-gold-600 font-semibold">₹{parseFloat(rate).toLocaleString('en-IN')}/g</p>}
-                  <p className="text-xs text-muted-foreground">{p.category?.name}</p>
+                <div className="text-right">
+                  {estimatedPrice > 0 && (
+                    <p className="text-sm font-semibold text-gold-600">
+                      ~₹{Math.round(estimatedPrice).toLocaleString('en-IN')}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground">est. price</p>
                 </div>
               </button>
             );
           })}
         </div>
-      )}
-    </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -565,6 +766,9 @@ export function TransactionFormPage() {
 
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
 
+  // Per-piece picker state
+  const [pendingProduct, setPendingProduct] = useState<any>(null);
+
   // Today's rates (locked)
   const { data: todayRates = {} } = useQuery<Record<string, string>>({
     queryKey: ['rates', 'today'],
@@ -583,17 +787,49 @@ export function TransactionFormPage() {
   const subtotal = items.reduce((s, item) => s + parseFloat(item.totalPrice || '0'), 0);
   const finalAmount = subtotal - discount + taxAmount;
 
-  // Add product from search
-  const handleProductSelect = useCallback((product: any, rate: string | null) => {
-    const weight = product.grossWeightG ?? '';
+  // Add item from a specific piece (per-piece sale)
+  const handlePieceSelect = useCallback((product: any, piece: any, rate: string | null) => {
+    const weight = piece.grossWeightG ?? product.grossWeightG ?? '';
+    const purity = piece.purity ?? product.purity ?? '';
     const makingRaw = parseFloat(product.makingCharge ?? '0');
     const makingType = product.makingType ?? 'flat';
-
     const metalPrice = rate && weight ? parseFloat(rate) * parseFloat(weight) : 0;
     const makingValue =
       makingType === 'per_gram' ? makingRaw * parseFloat(weight || '0') :
-      makingType === 'percentage' ? (metalPrice * makingRaw) / 100 :
-      makingRaw;
+      makingType === 'percentage' ? (metalPrice * makingRaw) / 100 : makingRaw;
+    const unitPrice = metalPrice + makingValue;
+
+    append({
+      productId: product.id,
+      pieceId: piece.id,
+      productName: `${product.name} [${piece.tagNo ?? piece.id.slice(0, 6)}]`,
+      metalType: product.metalType ?? '',
+      quantity: 1,
+      purity,
+      weightG: String(weight),
+      ratePerGram: rate ? String(parseFloat(rate)) : '',
+      makingCharge: String(makingRaw),
+      makingType,
+      stoneCharge: '0',
+      unitPrice: unitPrice.toFixed(2),
+      totalPrice: unitPrice.toFixed(2),
+      isExchangeItem: false,
+    });
+  }, [append]);
+
+  // Add product from search — if per_piece, open piece picker first
+  const handleProductSelect = useCallback((product: any, rate: string | null) => {
+    if (product.trackingType === 'per_piece' && type === 'sale') {
+      setPendingProduct(product);
+      return;
+    }
+    const weight = product.grossWeightG ?? '';
+    const makingRaw = parseFloat(product.makingCharge ?? '0');
+    const makingType = product.makingType ?? 'flat';
+    const metalPrice = rate && weight ? parseFloat(rate) * parseFloat(weight) : 0;
+    const makingValue =
+      makingType === 'per_gram' ? makingRaw * parseFloat(weight || '0') :
+      makingType === 'percentage' ? (metalPrice * makingRaw) / 100 : makingRaw;
     const unitPrice = metalPrice + makingValue;
 
     append({
@@ -611,7 +847,7 @@ export function TransactionFormPage() {
       totalPrice: unitPrice.toFixed(2),
       isExchangeItem: false,
     });
-  }, [append]);
+  }, [append, type]);
 
   const addEmptyItem = (isExchangeItem = false) => append({
     productId: undefined, productName: '', metalType: 'gold', quantity: 1,
@@ -712,8 +948,9 @@ export function TransactionFormPage() {
                 )}
 
                 {fields.length === 0 && !isRepair && (
-                  <div className="rounded-lg border-2 border-dashed border-border py-8 text-center text-muted-foreground text-sm">
-                    Search by name or SKU, or add manually
+                  <div className="rounded-lg border-2 border-dashed border-border py-6 text-center text-muted-foreground text-sm space-y-1">
+                    <p>Search for a product above, or click <strong>+ Manual Item</strong> to add a custom line</p>
+                    <p className="text-xs">Manual items are not linked to inventory — use them for one-off or unlisted items</p>
                   </div>
                 )}
 
@@ -899,6 +1136,17 @@ export function TransactionFormPage() {
           </div>
         </div>
       </form>
+
+      {/* Per-piece picker */}
+      {pendingProduct && (
+        <PiecePickerDialog
+          open={!!pendingProduct}
+          onClose={() => setPendingProduct(null)}
+          product={pendingProduct}
+          todayRates={todayRates as Record<string, string>}
+          onSelect={handlePieceSelect}
+        />
+      )}
     </div>
   );
 }

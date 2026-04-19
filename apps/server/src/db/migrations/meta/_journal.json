@@ -15,6 +15,20 @@
       "when": 1776239924222,
       "tag": "0001_sweet_riptide",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776300000000,
+      "tag": "0002_catalog_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776400000000,
+      "tag": "0003_per_piece_tracking",
+      "breakpoints": true
     }
   ]
 }

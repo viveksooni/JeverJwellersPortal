@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { AppSidebar } from './AppSidebar';
 import { useQuery } from '@tanstack/react-query';
@@ -10,12 +11,22 @@ export function AppLayout() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
+
+  function handleToggle() {
+    setCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem('sidebar-collapsed', String(next));
+      return next;
+    });
+  }
+
   const logoUrl = data?.logo_url ? data.logo_url : null;
   const shopName = data?.shop_name ?? 'Jever Jwellers';
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <AppSidebar logoUrl={logoUrl} shopName={shopName} />
+      <AppSidebar logoUrl={logoUrl} shopName={shopName} collapsed={collapsed} onToggle={handleToggle} />
       <main className="flex-1 overflow-y-auto bg-background">
         <Outlet />
       </main>

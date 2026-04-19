@@ -10,6 +10,25 @@ pipeline {
     }
 
     stages {
+        stage('Setup') {
+            steps {
+                script {
+                    def out = sh(
+                        script: 'command -v docker-compose 2>/dev/null || docker compose version > /dev/null 2>&1 && echo "docker compose" || true',
+                        returnStdout: true
+                    ).trim()
+                    if (out.contains('docker compose')) {
+                        env.COMPOSE_CMD = 'docker compose'
+                    } else if (out) {
+                        env.COMPOSE_CMD = out   // full path from command -v
+                    } else {
+                        error 'Neither docker-compose nor docker compose plugin found'
+                    }
+                    echo "Using compose command: ${env.COMPOSE_CMD}"
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 echo '── Pulling latest code ──'
@@ -32,7 +51,7 @@ pipeline {
     steps {
         withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
             sh """
-                docker-compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
+                ${COMPOSE_CMD} -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
                     build --no-cache
             """
         }
@@ -43,7 +62,7 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
                     sh """
-                        docker-compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
+                        ${COMPOSE_CMD} -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
                             up -d
                     """
                 }
@@ -80,10 +99,10 @@ pipeline {
             echo '❌ Rolling back...'
             withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
                 sh """
-                    docker-compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} down
+                    ${COMPOSE_CMD} -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} down
                     docker tag jever_server:rollback jever_server:latest || true
                     docker tag jever_admin:rollback  jever_admin:latest  || true
-                    docker-compose -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} up -d --no-build
+                    ${COMPOSE_CMD} -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} up -d --no-build
                 """
             }
         }

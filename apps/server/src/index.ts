@@ -17,6 +17,8 @@ import invoiceRoutes from './routes/invoices.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import ratesRoutes from './routes/rates.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
+import categoriesRoutes from './routes/categories.routes.js';
+import piecesRoutes from './routes/pieces.routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -66,6 +68,8 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/rates', ratesRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/categories', categoriesRoutes);
+app.use('/api/pieces', piecesRoutes);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));

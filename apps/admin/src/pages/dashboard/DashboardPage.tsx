@@ -1,4 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import {
   TrendingUp,
   ShoppingBag,
@@ -7,14 +11,20 @@ import {
   Wrench,
   IndianRupee,
   ArrowRight,
+  Plus,
+  Loader2,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { PageHeader } from '@/components/layout/PageHeader';
 import api from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -24,6 +34,7 @@ import {
   CartesianGrid,
   Tooltip,
 } from 'recharts';
+import { METAL_RATE_LABELS } from '@jever/shared';
 
 interface MetricCardProps {
   title: string;
@@ -52,8 +63,157 @@ function MetricCard({ title, value, icon: Icon, sub, color = 'text-gold-500' }: 
   );
 }
 
+// ─── Add Customer Quick Dialog ────────────────────────────────────────────────
+
+const customerSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  address: z.string().optional(),
+});
+type CustomerFormData = z.infer<typeof customerSchema>;
+
+function AddCustomerDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<CustomerFormData>({
+    resolver: zodResolver(customerSchema),
+  });
+
+  useEffect(() => {
+    if (!open) reset();
+  }, [open, reset]);
+
+  const mutation = useMutation({
+    mutationFn: (data: CustomerFormData) => api.post('/customers', data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      qc.invalidateQueries({ queryKey: ['analytics'] });
+      toast({ variant: 'success', title: 'Customer added' });
+      onClose();
+    },
+    onError: () => toast({ variant: 'destructive', title: 'Failed to add customer' }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Customer</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Name *</Label>
+            <Input {...register('name')} placeholder="Customer name" autoFocus />
+            {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Phone</Label>
+              <Input {...register('phone')} placeholder="+91 98765 43210" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Email</Label>
+              <Input {...register('email')} type="email" placeholder="email@example.com" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Address</Label>
+            <Input {...register('address')} placeholder="Full address" />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="gold" disabled={mutation.isPending}>
+              {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Add Customer
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Add Product Quick Dialog ─────────────────────────────────────────────────
+
+const productSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  sku: z.string().optional(),
+  metalType: z.string().optional(),
+  grossWeightG: z.string().optional(),
+  trackingType: z.enum(['template', 'per_piece']).default('template'),
+});
+type ProductFormData = z.infer<typeof productSchema>;
+
+function AddProductDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<ProductFormData>({
+    resolver: zodResolver(productSchema),
+    defaultValues: { trackingType: 'template' },
+  });
+
+  useEffect(() => {
+    if (!open) reset();
+  }, [open, reset]);
+
+  const mutation = useMutation({
+    mutationFn: (data: ProductFormData) => api.post('/products', data),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['products'] });
+      toast({ variant: 'success', title: 'Product added', description: 'You can add more details on the products page.' });
+      onClose();
+      navigate('/products');
+    },
+    onError: () => toast({ variant: 'destructive', title: 'Failed to add product' }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Quick Add Product</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground -mt-2">Fill in the essentials now. You can add more details (images, purity, etc.) from the Products page.</p>
+        <form onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Product Name *</Label>
+            <Input {...register('name')} placeholder="e.g. 22K Gold Necklace" autoFocus />
+            {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>SKU</Label>
+              <Input {...register('sku')} placeholder="e.g. GR-001" className="font-mono" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Metal Type</Label>
+              <Input {...register('metalType')} placeholder="gold, silver…" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Gross Weight (g)</Label>
+            <Input {...register('grossWeightG')} placeholder="12.500" />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" variant="gold" disabled={mutation.isPending}>
+              {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Add Product
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export function DashboardPage() {
-  const { data: summary, isLoading } = useQuery({
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [showAddProduct, setShowAddProduct] = useState(false);
+
+  const { data: summary } = useQuery({
     queryKey: ['analytics', 'summary'],
     queryFn: () => api.get('/analytics/summary').then((r) => r.data.data),
     refetchInterval: 60_000,
@@ -80,6 +240,10 @@ export function DashboardPage() {
     transactions: parseInt(d.transactions ?? 0),
   }));
 
+  const rateEntries = ratesData
+    ? Object.entries(ratesData as Record<string, string | null>).filter(([, v]) => v !== null)
+    : [];
+
   return (
     <div className="flex flex-col h-full">
       <PageHeader
@@ -93,25 +257,7 @@ export function DashboardPage() {
       />
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Today's Rates Strip */}
-        {ratesData && (
-          <div className="rounded-lg border border-gold-200 bg-gold-50 px-4 py-2.5 flex flex-wrap gap-4 items-center">
-            <span className="text-xs font-semibold uppercase tracking-widest text-gold-600">Today's Rates</span>
-            {Object.entries(ratesData as Record<string, string | null>)
-              .filter(([, v]) => v !== null)
-              .map(([key, val]) => (
-                <span key={key} className="text-sm font-medium text-foreground">
-                  <span className="text-gold-600 text-xs">{key.replace('_', ' ').toUpperCase()}</span>{' '}
-                  ₹{parseFloat(val!).toLocaleString('en-IN')}/g
-                </span>
-              ))}
-            <Link to="/settings/rates" className="ml-auto">
-              <Button variant="outline" size="sm" className="text-xs h-7 border-gold-300">Update Rates</Button>
-            </Link>
-          </div>
-        )}
-
-        {/* Metric Cards */}
+        {/* Metric Cards — New Customers is last */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             title="Today's Revenue"
@@ -128,18 +274,18 @@ export function DashboardPage() {
             color="text-blue-500"
           />
           <MetricCard
-            title="New Customers"
-            value={summary?.todayNewCustomers ?? 0}
-            icon={Users}
-            sub="registered today"
-            color="text-emerald-500"
-          />
-          <MetricCard
             title="This Month"
             value={formatCurrency(summary?.monthRevenue)}
             icon={ShoppingBag}
             sub={`${summary?.monthTransactions ?? 0} transactions`}
             color="text-violet-500"
+          />
+          <MetricCard
+            title="New Customers"
+            value={summary?.todayNewCustomers ?? 0}
+            icon={Users}
+            sub="registered today"
+            color="text-emerald-500"
           />
         </div>
 
@@ -201,28 +347,73 @@ export function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              {[
-                { label: 'New Sale', to: '/transactions/new/sale', color: 'gold' as const },
-                { label: 'New Purchase', to: '/transactions/new/purchase', color: 'outline' as const },
-                { label: 'Repair Order', to: '/transactions/new/repair', color: 'outline' as const },
-                { label: 'Add Customer', to: '/customers/new', color: 'outline' as const },
-                { label: 'Add Product', to: '/products/new', color: 'outline' as const },
-                { label: 'View Analytics', to: '/analytics', color: 'outline' as const },
-              ].map((action) => (
-                <Link key={action.to} to={action.to}>
-                  <Button variant={action.color} size="sm" className="w-full justify-start">
-                    {action.label}
-                  </Button>
+          {/* Right column: Rates + Quick Actions */}
+          <div className="flex flex-col gap-4">
+            {/* Today's Rates — as rows */}
+            {rateEntries.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2 flex-row items-center justify-between">
+                  <CardTitle className="text-sm text-gold-700">Today's Rates</CardTitle>
+                  <Link to="/settings/rates">
+                    <Button variant="ghost" size="sm" className="text-xs h-6 text-gold-600 hover:text-gold-700 px-2">
+                      Update
+                    </Button>
+                  </Link>
+                </CardHeader>
+                <CardContent className="pt-0 pb-3">
+                  <div className="divide-y divide-border">
+                    {rateEntries.map(([key, val]) => (
+                      <div key={key} className="flex items-center justify-between py-1.5">
+                        <span className="text-xs text-muted-foreground">
+                          {(METAL_RATE_LABELS as any)[key] ?? key.replace('_', ' ').toUpperCase()}
+                        </span>
+                        <span className="text-sm font-semibold font-mono">
+                          ₹{parseFloat(val!).toLocaleString('en-IN')}<span className="text-[10px] text-muted-foreground font-normal">/g</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Quick Actions */}
+            <Card className="flex-1">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                <Link to="/transactions/new/sale">
+                  <Button variant="gold" size="sm" className="w-full justify-start">New Sale</Button>
                 </Link>
-              ))}
-            </CardContent>
-          </Card>
+                <Link to="/transactions/new/purchase">
+                  <Button variant="outline" size="sm" className="w-full justify-start">New Purchase</Button>
+                </Link>
+                <Link to="/transactions/new/repair">
+                  <Button variant="outline" size="sm" className="w-full justify-start">Repair Order</Button>
+                </Link>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => setShowAddCustomer(true)}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Customer
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => setShowAddProduct(true)}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Product
+                </Button>
+                <Link to="/analytics">
+                  <Button variant="outline" size="sm" className="w-full justify-start">View Analytics</Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         {/* Recent Transactions */}
@@ -263,6 +454,9 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <AddCustomerDialog open={showAddCustomer} onClose={() => setShowAddCustomer(false)} />
+      <AddProductDialog open={showAddProduct} onClose={() => setShowAddProduct(false)} />
     </div>
   );
 }

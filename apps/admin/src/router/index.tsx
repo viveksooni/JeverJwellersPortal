@@ -15,6 +15,7 @@ import { AnalyticsPage } from '@/pages/analytics/AnalyticsPage';
 import { SettingsPage } from '@/pages/settings/SettingsPage';
 import { CustomerDetailPage } from '@/pages/customers/CustomerDetailPage';
 import { StockConsolidatedPage } from '@/pages/inventory/StockConsolidatedPage';
+import { ProductDetailPage } from '@/pages/products/ProductDetailPage';
 
 export const router = createBrowserRouter([
   {
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/dashboard" replace /> },
           { path: 'dashboard', element: <DashboardPage /> },
           { path: 'products', element: <ProductsPage /> },
+          { path: 'products/:id', element: <ProductDetailPage /> },
           { path: 'inventory', element: <InventoryPage /> },
           { path: 'customers', element: <CustomersPage /> },
           { path: 'customers/:id', element: <CustomerDetailPage /> },

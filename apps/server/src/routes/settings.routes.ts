@@ -79,4 +79,66 @@ router.post(
   },
 );
 
+// ─── Metal Types ──────────────────────────────────────────────────────────────
+// Stored in shopSettings as JSON under key 'metal_types'
+
+const DEFAULT_METAL_TYPES = [
+  { name: 'gold',       prefix: 'G',  label: 'Gold' },
+  { name: 'silver',     prefix: 'S',  label: 'Silver' },
+  { name: 'platinum',   prefix: 'P',  label: 'Platinum' },
+  { name: 'diamond',    prefix: 'D',  label: 'Diamond' },
+  { name: 'rose gold',  prefix: 'RG', label: 'Rose Gold' },
+  { name: 'white gold', prefix: 'WG', label: 'White Gold' },
+  { name: 'other',      prefix: 'X',  label: 'Other' },
+];
+
+async function getMetalTypesFromDb() {
+  const rows = await db.select().from(shopSettings).where(eq(shopSettings.key, 'metal_types'));
+  if (rows.length && rows[0].value) {
+    try { return JSON.parse(rows[0].value); } catch { /* fall through */ }
+  }
+  return DEFAULT_METAL_TYPES;
+}
+
+router.get('/metal-types', async (_req, res: Response, next: NextFunction) => {
+  try {
+    const data = await getMetalTypesFromDb();
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+const metalTypeSchema = z.object({
+  name:   z.string().min(1).max(50),
+  prefix: z.string().min(1).max(10),
+  label:  z.string().min(1).max(50),
+});
+
+router.post('/metal-types', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const entry = metalTypeSchema.parse(req.body);
+    const current = await getMetalTypesFromDb();
+    if (current.find((m: any) => m.name.toLowerCase() === entry.name.toLowerCase())) {
+      res.status(400).json({ success: false, error: 'Metal type already exists' });
+      return;
+    }
+    const updated = [...current, entry];
+    await db.insert(shopSettings)
+      .values({ key: 'metal_types', value: JSON.stringify(updated) })
+      .onConflictDoUpdate({ target: shopSettings.key, set: { value: JSON.stringify(updated), updatedAt: new Date() } });
+    res.status(201).json({ success: true, data: updated });
+  } catch (err) { next(err); }
+});
+
+router.delete('/metal-types/:name', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const name = req.params.name.toLowerCase();
+    const current = await getMetalTypesFromDb();
+    const updated = current.filter((m: any) => m.name.toLowerCase() !== name);
+    await db.insert(shopSettings)
+      .values({ key: 'metal_types', value: JSON.stringify(updated) })
+      .onConflictDoUpdate({ target: shopSettings.key, set: { value: JSON.stringify(updated), updatedAt: new Date() } });
+    res.json({ success: true, data: updated });
+  } catch (err) { next(err); }
+});
+
 export default router;

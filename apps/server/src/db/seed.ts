@@ -12,13 +12,18 @@ const db = drizzle(pool, { schema });
 async function main() {
   console.log('Seeding database...');
 
-  // Seed categories
+  // Seed categories — jewelry types (metal is a separate product property)
   await db.insert(schema.categories).values([
-    { name: 'Gold', description: 'Gold jewelry items' },
-    { name: 'Silver', description: 'Silver jewelry items' },
-    { name: 'Diamond', description: 'Diamond jewelry items' },
-    { name: 'Platinum', description: 'Platinum jewelry items' },
-    { name: 'Other', description: 'Other jewelry items' },
+    { name: 'Ring',     description: 'Finger rings and bands' },
+    { name: 'Necklace', description: 'Necklaces' },
+    { name: 'Locket',   description: 'Lockets and pendants' },
+    { name: 'Bracelet', description: 'Bracelets' },
+    { name: 'Earring',  description: 'Earrings and ear studs' },
+    { name: 'Bangle',   description: 'Traditional bangles' },
+    { name: 'Chain',    description: 'Chains and links' },
+    { name: 'Pendant',  description: 'Pendants and charms' },
+    { name: 'Anklet',   description: 'Anklets and foot jewelry' },
+    { name: 'Other',    description: 'Other jewelry items' },
   ]).onConflictDoNothing();
 
   // Seed admin user

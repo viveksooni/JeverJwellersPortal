@@ -231,4 +231,32 @@ router.get('/meta/categories', async (_req, res: Response, next: NextFunction) =
   }
 });
 
+// Get next available SKU for a given prefix (e.g. GR → GR-003)
+router.get('/meta/next-sku', async (req, res: Response, next: NextFunction) => {
+  try {
+    const prefix = String(req.query.prefix ?? '').toUpperCase();
+    if (!prefix) {
+      res.status(400).json({ success: false, error: 'prefix query param required' });
+      return;
+    }
+    // Find all existing SKUs that start with this prefix pattern
+    const existing = await db
+      .select({ sku: products.sku })
+      .from(products)
+      .where(ilike(products.sku, `${prefix}-%`));
+
+    let maxNum = 0;
+    for (const { sku } of existing) {
+      if (!sku) continue;
+      const parts = sku.split('-');
+      const num = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(num) && num > maxNum) maxNum = num;
+    }
+    const next = `${prefix}-${String(maxNum + 1).padStart(3, '0')}`;
+    res.json({ success: true, data: { sku: next } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

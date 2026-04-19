@@ -7,8 +7,10 @@ import {
   repairOrders,
   inventory,
   inventoryMovements,
+  pieces,
 } from '../db/schema.js';
 import { eq, and, gte, lte, desc, ilike, count, sql } from 'drizzle-orm';
+import { syncInventory } from './pieces.routes.js';
 import { authenticate, AuthRequest } from '../middleware/auth.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { generateTransactionNo } from '../utils/invoiceNumber.js';
@@ -22,6 +24,7 @@ const emptyToUndefined = (v: unknown) => (v === '' || v === null || v === undefi
 
 const itemSchema = z.object({
   productId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
+  pieceId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
   productName: z.string().min(1),
   quantity: z.number().int().min(1).default(1),
   weightG: z.preprocess(emptyToNull, z.string().nullable().optional()),
@@ -81,10 +84,16 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     const where = conditions.length ? and(...conditions) : undefined;
 
+    // Include items (with piece tag info) when fetching a single-day range (Day Book)
+    const isSingleDay = from && to && from === to;
+
     const [data, [{ total }]] = await Promise.all([
       db.query.transactions.findMany({
         where,
-        with: { customer: true },
+        with: {
+          customer: true,
+          ...(isSingleDay ? { items: true } : {}),
+        },
         orderBy: desc(transactions.transactionDate),
         limit,
         offset,
@@ -153,25 +162,38 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     for (const item of data.items) {
       await db.insert(transactionItems).values({ ...item, transactionId: txn.id });
 
-      // Update inventory for sale (deduct) and purchase (add)
       if (item.productId) {
+        // If a specific piece was sold, mark it sold and sync inventory from pieces
+        if (item.pieceId && data.type === 'sale') {
+          await db
+            .update(pieces)
+            .set({ status: 'sold', soldTransactionId: txn.id, updatedAt: new Date() })
+            .where(eq(pieces.id, item.pieceId));
+          await syncInventory(item.productId);
+        } else {
+          // Template tracking — update inventory quantity directly
+          const qty = data.type === 'sale' ? -item.quantity : data.type === 'purchase' ? item.quantity : 0;
+          if (qty !== 0) {
+            await db
+              .update(inventory)
+              .set({
+                quantity: sql`${inventory.quantity} + ${qty}`,
+                lastUpdated: new Date(),
+              })
+              .where(eq(inventory.productId, item.productId));
+          }
+        }
+
+        // Always log movement
         const qty = data.type === 'sale' ? -item.quantity : data.type === 'purchase' ? item.quantity : 0;
         if (qty !== 0) {
-          await db
-            .update(inventory)
-            .set({
-              quantity: sql`${inventory.quantity} + ${qty}`,
-              lastUpdated: new Date(),
-            })
-            .where(eq(inventory.productId, item.productId));
-
           await db.insert(inventoryMovements).values({
             productId: item.productId,
             movementType: data.type === 'sale' ? 'out' : 'in',
             quantity: qty,
             weightG: item.weightG,
             referenceId: txn.id,
-            notes: `Auto from ${data.type} ${transactionNo}`,
+            notes: `Auto from ${data.type} ${transactionNo}${item.pieceId ? ` (piece)` : ''}`,
             createdBy: req.userId,
           });
         }

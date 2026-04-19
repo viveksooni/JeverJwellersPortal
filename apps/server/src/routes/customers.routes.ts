@@ -111,6 +111,26 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   }
 });
 
+// Delete customer (only if they have no transactions)
+router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const [{ txnCount }] = await db
+      .select({ txnCount: count() })
+      .from(transactions)
+      .where(eq(transactions.customerId, req.params.id));
+
+    if (Number(txnCount) > 0) {
+      throw new AppError(`Cannot delete customer with ${txnCount} transaction(s). Update the record instead.`, 400);
+    }
+
+    const [deleted] = await db.delete(customers).where(eq(customers.id, req.params.id)).returning();
+    if (!deleted) throw new AppError('Customer not found', 404);
+    res.json({ success: true, data: deleted });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get customer's transactions
 router.get('/:id/transactions', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

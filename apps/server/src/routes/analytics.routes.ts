@@ -269,27 +269,62 @@ router.delete('/remarks/:date', async (req: AuthRequest, res: Response, next: Ne
   }
 });
 
-// ─── Stock Consolidated (for Stock Register page) ─────────────────────────────
+// ─── Stock Consolidated (for Day Book page) ───────────────────────────────────
 
 router.get('/stock-consolidated', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    // Sales today: qty and weight sold per product
-    const todaySalesRaw = await db.execute(sql`
-      SELECT
-        ti.product_id AS "productId",
-        SUM(ti.quantity) AS "qtySold",
-        COALESCE(SUM(ti.weight_g::numeric), 0) AS "weightSold",
-        COALESCE(SUM(ti.total_price::numeric), 0) AS "revenue"
-      FROM transaction_items ti
-      JOIN transactions t ON ti.transaction_id = t.id
-      WHERE t.type = 'sale'
-        AND t.transaction_date >= ${todayStart}
-        AND ti.is_exchange_item = false
-      GROUP BY ti.product_id
-    `);
+    const [todaySalesRaw, silverWeightRow, goldPiecesRow, silverSoldTodayRow] = await Promise.all([
+      // Sales today: qty and weight sold per product
+      db.execute(sql`
+        SELECT
+          ti.product_id AS "productId",
+          SUM(ti.quantity) AS "qtySold",
+          COALESCE(SUM(ti.weight_g::numeric), 0) AS "weightSold",
+          COALESCE(SUM(ti.total_price::numeric), 0) AS "revenue"
+        FROM transaction_items ti
+        JOIN transactions t ON ti.transaction_id = t.id
+        WHERE t.type = 'sale'
+          AND t.transaction_date >= ${todayStart}
+          AND ti.is_exchange_item = false
+        GROUP BY ti.product_id
+      `),
+
+      // Total silver weight currently in stock (opening weight proxy)
+      db.execute(sql`
+        SELECT COALESCE(SUM(inv.total_weight_g::numeric), 0) AS weight
+        FROM inventory inv
+        JOIN products p ON p.id = inv.product_id
+        WHERE lower(p.metal_type) = 'silver'
+          AND p.is_active = true
+      `),
+
+      // Gold pieces sold today (any gold variant)
+      db.execute(sql`
+        SELECT COUNT(ti.id) AS pieces
+        FROM transaction_items ti
+        JOIN transactions t ON ti.transaction_id = t.id
+        JOIN products p ON p.id = ti.product_id
+        WHERE t.type = 'sale'
+          AND t.transaction_date >= ${todayStart}
+          AND lower(p.metal_type) IN ('gold', 'rose gold', 'white gold')
+          AND ti.is_exchange_item = false
+      `),
+
+      // Silver weight sold today
+      db.execute(sql`
+        SELECT COALESCE(SUM(ti.weight_g::numeric), 0) AS weight
+        FROM transaction_items ti
+        JOIN transactions t ON ti.transaction_id = t.id
+        JOIN products p ON p.id = ti.product_id
+        WHERE t.type = 'sale'
+          AND t.transaction_date >= ${todayStart}
+          AND lower(p.metal_type) = 'silver'
+          AND ti.is_exchange_item = false
+      `),
+    ]);
 
     const todaySales: Record<string, { qtySold: number; weightSold: number; revenue: number }> = {};
     for (const row of todaySalesRaw.rows as any[]) {
@@ -302,7 +337,17 @@ router.get('/stock-consolidated', async (req: AuthRequest, res: Response, next: 
       }
     }
 
-    res.json({ success: true, data: { todaySales } });
+    res.json({
+      success: true,
+      data: {
+        todaySales,
+        silverWeightG: parseFloat((silverWeightRow.rows[0] as any)?.weight ?? '0'),
+        silverSoldTodayG: parseFloat((silverSoldTodayRow.rows[0] as any)?.weight ?? '0'),
+        silverOpeningG: parseFloat((silverWeightRow.rows[0] as any)?.weight ?? '0') + parseFloat((silverSoldTodayRow.rows[0] as any)?.weight ?? '0'),
+        silverClosingG: parseFloat((silverWeightRow.rows[0] as any)?.weight ?? '0'),
+        goldPiecesSoldToday: parseInt((goldPiecesRow.rows[0] as any)?.pieces ?? '0'),
+      },
+    });
   } catch (err) {
     next(err);
   }

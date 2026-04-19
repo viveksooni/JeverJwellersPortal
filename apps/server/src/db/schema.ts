@@ -45,6 +45,9 @@ export const categories = pgTable('categories', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 100 }).notNull(),
   description: text('description'),
+  skuPrefix: varchar('sku_prefix', { length: 10 }),
+  trackingType: varchar('tracking_type', { length: 20 }).default('template').notNull(),
+  // 'template' = quantity only; 'per_piece' = each physical piece tracked individually
 });
 
 // ─── Products ─────────────────────────────────────────────────────────────────
@@ -63,6 +66,8 @@ export const products = pgTable('products', {
   stoneWeightCt: numeric('stone_weight_ct', { precision: 10, scale: 4 }),
   makingCharge: numeric('making_charge', { precision: 10, scale: 2 }),
   makingType: varchar('making_type', { length: 20 }).default('flat').notNull(),
+  trackingType: varchar('tracking_type', { length: 20 }).default('template').notNull(),
+  // inherits from category default; 'per_piece' for gold/diamond, 'template' for silver/others
   isActive: boolean('is_active').default(true).notNull(),
   attributes: jsonb('attributes').default({}).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -165,6 +170,7 @@ export const transactionItems = pgTable('transaction_items', {
   unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
   totalPrice: numeric('total_price', { precision: 12, scale: 2 }).notNull(),
   isExchangeItem: boolean('is_exchange_item').default(false).notNull(),
+  pieceId: uuid('piece_id'), // filled when selling a per-piece tracked item
 });
 
 // ─── Repair Orders ────────────────────────────────────────────────────────────
@@ -237,12 +243,43 @@ export const shopSettings = pgTable('shop_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// ─── Pieces (per-piece tracking for gold/diamond) ─────────────────────────────
+// Each physical piece of jewelry gets its own row when trackingType = 'per_piece'
+
+export const pieces = pgTable(
+  'pieces',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productId: uuid('product_id')
+      .references(() => products.id, { onDelete: 'cascade' })
+      .notNull(),
+    tagNo: varchar('tag_no', { length: 50 }).unique(), // physical tag attached to piece
+    grossWeightG: numeric('gross_weight_g', { precision: 10, scale: 4 }),
+    netWeightG: numeric('net_weight_g', { precision: 10, scale: 4 }),
+    stoneWeightCt: numeric('stone_weight_ct', { precision: 10, scale: 4 }),
+    purity: varchar('purity', { length: 20 }), // can differ from product template
+    status: varchar('status', { length: 20 }).default('in_stock').notNull(),
+    // status: in_stock | sold | on_repair | on_hold
+    notes: text('notes'),
+    soldTransactionId: uuid('sold_transaction_id').references(() => transactions.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('idx_pieces_product').on(table.productId)],
+);
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const productsRelations = relations(products, ({ one, many }) => ({
   category: one(categories, { fields: [products.categoryId], references: [categories.id] }),
   images: many(productImages),
   inventory: one(inventory, { fields: [products.id], references: [inventory.productId] }),
+  pieces: many(pieces),
+}));
+
+export const piecesRelations = relations(pieces, ({ one }) => ({
+  product: one(products, { fields: [pieces.productId], references: [products.id] }),
+  soldTransaction: one(transactions, { fields: [pieces.soldTransactionId], references: [transactions.id] }),
 }));
 
 export const productImagesRelations = relations(productImages, ({ one }) => ({
@@ -315,3 +352,5 @@ export type Invoice = typeof invoices.$inferSelect;
 export type MetalRate = typeof metalRates.$inferSelect;
 export type ShopSetting = typeof shopSettings.$inferSelect;
 export type DayRemark = typeof dayRemarks.$inferSelect;
+export type Piece = typeof pieces.$inferSelect;
+export type NewPiece = typeof pieces.$inferInsert;

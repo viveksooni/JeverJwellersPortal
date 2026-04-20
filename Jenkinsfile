@@ -13,14 +13,20 @@ pipeline {
         stage('Setup') {
             steps {
                 script {
-                    def out = sh(
-                        script: 'command -v docker-compose 2>/dev/null || docker compose version > /dev/null 2>&1 && echo "docker compose" || true',
+                    def binaryPath = sh(
+                        script: 'command -v docker-compose 2>/dev/null || true',
                         returnStdout: true
                     ).trim()
-                    if (out.contains('docker compose')) {
+
+                    def pluginAvailable = sh(
+                        script: 'docker compose version > /dev/null 2>&1 && echo "yes" || echo "no"',
+                        returnStdout: true
+                    ).trim()
+
+                    if (binaryPath) {
+                        env.COMPOSE_CMD = binaryPath   // e.g. /usr/local/bin/docker-compose
+                    } else if (pluginAvailable == 'yes') {
                         env.COMPOSE_CMD = 'docker compose'
-                    } else if (out) {
-                        env.COMPOSE_CMD = out   // full path from command -v
                     } else {
                         error 'Neither docker-compose nor docker compose plugin found'
                     }

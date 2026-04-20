@@ -6,91 +6,69 @@ pipeline {
     }
 
     environment {
+        VPS_HOST    = '187.77.185.238'
+        VPS_USER    = 'vivek_soniLess'
+        APP_DIR     = '/home/vivek_soniLess/apps/JeverJwellersPortal'
         COMPOSE_FILE = 'docker-compose.prod.yml'
     }
 
     stages {
-        stage('Setup') {
-            steps {
-                script {
-                    def binaryPath = sh(
-                        script: 'command -v docker-compose 2>/dev/null || true',
-                        returnStdout: true
-                    ).trim()
-
-                    def pluginAvailable = sh(
-                        script: 'docker compose version > /dev/null 2>&1 && echo "yes" || echo "no"',
-                        returnStdout: true
-                    ).trim()
-
-                    if (binaryPath) {
-                        env.COMPOSE_CMD = binaryPath   // e.g. /usr/local/bin/docker-compose
-                    } else if (pluginAvailable == 'yes') {
-                        env.COMPOSE_CMD = 'docker compose'
-                    } else {
-                        error 'Neither docker-compose nor docker compose plugin found'
-                    }
-                    echo "Using compose command: ${env.COMPOSE_CMD}"
-                }
-            }
-        }
-
         stage('Checkout') {
             steps {
-                echo '── Pulling latest code ──'
+                echo 'Pulling latest pipeline code'
                 git branch: 'main',
                     credentialsId: 'github-credentials',
                     url: 'https://github.com/viveksooni/JeverJwellersPortal.git'
             }
         }
 
-        stage('Tag Previous Images') {
+        stage('Deploy on VPS') {
             steps {
-                sh '''
-                    docker tag jever_server:latest jever_server:rollback || true
-                    docker tag jever_admin:latest  jever_admin:rollback  || true
-                '''
-            }
-        }
+                sshagent(credentials: ['vps-ssh-key']) {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "
+                            set -e
+                            cd ${APP_DIR}
 
-       stage('Build Images') {
-    steps {
-        withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
-            sh """
-                ${COMPOSE_CMD} -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
-                    build --no-cache
-            """
-        }
-    }
-}
+                            git fetch origin
+                            git reset --hard origin/main
+                            git clean -fd
 
-        stage('Deploy') {
-            steps {
-                withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
-                    sh """
-                        ${COMPOSE_CMD} -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} \
-                            up -d
-                    """
+                            docker compose -f ${COMPOSE_FILE} down || true
+                            docker compose -f ${COMPOSE_FILE} up -d --build
+
+                            sleep 8
+                            docker compose -f ${COMPOSE_FILE} ps
+                        "
+                    '''
                 }
             }
         }
 
-        stage('Run Migrations') {
+        stage('Run Migrations on VPS') {
             steps {
-                sh '''
-                    sleep 5
-                    docker exec jever_server node dist/db/migrate.js
-                '''
+                sshagent(credentials: ['vps-ssh-key']) {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "
+                            set -e
+                            cd ${APP_DIR}
+                            docker compose -f ${COMPOSE_FILE} exec -T server node dist/db/migrate.js
+                        "
+                    '''
+                }
             }
         }
 
-        stage('Health Check') {
+        stage('Health Check on VPS') {
             steps {
-                retry(3) {
-                    sh '''
-                        sleep 5
-                        curl -f http://127.0.0.1:3001/health || exit 1
-                    '''
+                sshagent(credentials: ['vps-ssh-key']) {
+                    retry(3) {
+                        sh '''
+                            ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "
+                                curl -f http://127.0.0.1:3001/health
+                            "
+                        '''
+                    }
                 }
             }
         }
@@ -98,19 +76,10 @@ pipeline {
 
     post {
         success {
-            echo '✅ Deployed successfully!'
-            sh 'docker image prune -f'
+            echo 'Deployment successful'
         }
         failure {
-            echo '❌ Rolling back...'
-            withCredentials([file(credentialsId: 'jever-env-file', variable: 'ENV_FILE')]) {
-                sh """
-                    ${COMPOSE_CMD} -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} down
-                    docker tag jever_server:rollback jever_server:latest || true
-                    docker tag jever_admin:rollback  jever_admin:latest  || true
-                    ${COMPOSE_CMD} -f ${WORKSPACE}/${COMPOSE_FILE} --env-file \${ENV_FILE} up -d --no-build
-                """
-            }
+            echo 'Deployment failed'
         }
     }
 }

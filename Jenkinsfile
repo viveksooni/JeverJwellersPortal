@@ -8,9 +8,9 @@ pipeline {
     environment {
         VPS_HOST     = '187.77.185.238'
         VPS_USER     = 'vivek_soniLess'
-        APP_DIR      = '/home/vivek_soniLess/apps/JeverJwellersPortal'
+        APP_DIR      = '/home/vivek_soniLess/projects/JeverJwellersPortal'
         COMPOSE_FILE = 'docker-compose.prod.yml'
-        ENV_FILE     = '/home/vivek_soniLess/.secrets/jever.env'
+        ENV_FILE     = '/home/vivek_soniLess/projects/JeverJwellersPortal/.env.production'
     }
 
     stages {

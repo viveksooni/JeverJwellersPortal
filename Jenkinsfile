@@ -6,16 +6,18 @@ pipeline {
     }
 
     environment {
-        VPS_HOST    = '187.77.185.238'
-        VPS_USER    = 'vivek_soniLess'
-        APP_DIR     = '/home/vivek_soniLess/apps/JeverJwellersPortal'
+        VPS_HOST     = '187.77.185.238'
+        VPS_USER     = 'vivek_soniLess'
+        APP_DIR      = '/home/vivek_soniLess/apps/JeverJwellersPortal'
         COMPOSE_FILE = 'docker-compose.prod.yml'
+        ENV_FILE     = '/home/vivek_soniLess/.secrets/jever.env'
     }
 
     stages {
+
         stage('Checkout') {
             steps {
-                echo 'Pulling latest pipeline code'
+                echo '── Pulling latest pipeline code ──'
                 git branch: 'main',
                     credentialsId: 'github-credentials',
                     url: 'https://github.com/viveksooni/JeverJwellersPortal.git'
@@ -25,49 +27,51 @@ pipeline {
         stage('Deploy on VPS') {
             steps {
                 sshagent(credentials: ['vps-ssh-key']) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "
+                    sh """
+                        ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} '
                             set -e
-                            cd ${APP_DIR}
 
+                            echo "── Pulling latest code ──"
+                            cd ${APP_DIR}
                             git fetch origin
                             git reset --hard origin/main
                             git clean -fd
 
-                            docker compose -f ${COMPOSE_FILE} down || true
-                            docker compose -f ${COMPOSE_FILE} up -d --build
+                            echo "── Building and starting containers ──"
+                            docker compose -f ${APP_DIR}/${COMPOSE_FILE} --env-file ${ENV_FILE} up -d --build --remove-orphans
 
-                            sleep 8
-                            docker compose -f ${COMPOSE_FILE} ps
-                        "
-                    '''
+                            echo "── Container status ──"
+                            docker compose -f ${APP_DIR}/${COMPOSE_FILE} ps
+                        '
+                    """
                 }
             }
         }
 
-        stage('Run Migrations on VPS') {
+        stage('Run Migrations') {
             steps {
                 sshagent(credentials: ['vps-ssh-key']) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "
+                    sh """
+                        ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} '
                             set -e
-                            cd ${APP_DIR}
-                            docker compose -f ${COMPOSE_FILE} exec -T server node dist/db/migrate.js
-                        "
-                    '''
+                            sleep 8
+                            docker compose -f ${APP_DIR}/${COMPOSE_FILE} exec -T server node dist/db/migrate.js
+                        '
+                    """
                 }
             }
         }
 
-        stage('Health Check on VPS') {
+        stage('Health Check') {
             steps {
                 sshagent(credentials: ['vps-ssh-key']) {
                     retry(3) {
-                        sh '''
-                            ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} "
-                                curl -f http://127.0.0.1:3001/health
-                            "
-                        '''
+                        sh """
+                            ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} '
+                                sleep 5
+                                curl -sf http://127.0.0.1:3001/health || exit 1
+                            '
+                        """
                     }
                 }
             }
@@ -76,10 +80,17 @@ pipeline {
 
     post {
         success {
-            echo 'Deployment successful'
+            echo '✅ Deployment successful'
         }
         failure {
-            echo 'Deployment failed'
+            echo '❌ Deployment failed — printing container logs'
+            sshagent(credentials: ['vps-ssh-key']) {
+                sh """
+                    ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} '
+                        docker compose -f ${APP_DIR}/${COMPOSE_FILE} logs --tail=50
+                    ' || true
+                """
+            }
         }
     }
 }

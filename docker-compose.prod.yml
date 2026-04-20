@@ -26,10 +26,20 @@ services:
       dockerfile: apps/server/Dockerfile
     container_name: jever_server
     restart: unless-stopped
-    env_file: .env.production
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      PORT: ${PORT:-3001}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      PUBLIC_URL: ${PUBLIC_URL}
+      SHOP_NAME: ${SHOP_NAME:-Jever Jwellers}
+      SHOP_ADDRESS: ${SHOP_ADDRESS:-}
+      SHOP_PHONE: ${SHOP_PHONE:-}
+      SHOP_EMAIL: ${SHOP_EMAIL:-}
+      SHOP_GSTIN: ${SHOP_GSTIN:-}
     volumes:
       - uploads_data:/app/uploads
     ports:

@@ -171,6 +171,7 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
   });
 
   const [skuGenerating, setSkuGenerating] = useState(false);
+  const [customLocationMode, setCustomLocationMode] = useState(false);
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<ProductForm>({
     resolver: zodResolver(productSchema),
@@ -203,7 +204,10 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
       });
       setExistingProductImages(product.images ?? []);
       setExistingStorageImages([]);
+      const locVal = product.inventory?.location ?? '';
+      setCustomLocationMode(!!(locVal && !LOCATION_OPTIONS.includes(locVal)));
     } else {
+      setCustomLocationMode(false);
       reset({
         makingType: 'flat',
         trackingType: 'template',
@@ -339,8 +343,6 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
                 value={watch('categoryId') ? String(watch('categoryId')) : ''}
                 onValueChange={(v) => {
                   setValue('categoryId', Number(v), { shouldValidate: true });
-                  const cat = categories.find((c: any) => c.id === Number(v));
-                  if (cat?.trackingType) setValue('trackingType', cat.trackingType as any);
                 }}
               >
                 <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
@@ -353,6 +355,21 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
                 </SelectContent>
               </Select>
               {errors.categoryId && <p className="text-xs text-destructive">{errors.categoryId.message}</p>}
+            </div>
+
+            {/* Item Type */}
+            <div className="space-y-1.5">
+              <Label>Item Type <span className="text-destructive">*</span></Label>
+              <Select value={watch('trackingType')} onValueChange={(v) => setValue('trackingType', v as any)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="template">Bulk / Quantity</SelectItem>
+                  <SelectItem value="per_piece">Per Piece</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Bulk = sold by count/weight; Per Piece = each item tracked individually
+              </p>
             </div>
 
             {/* Metal Type */}
@@ -444,14 +461,44 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
             </div>
             <div className="space-y-1.5">
               <Label>Location</Label>
-              <Select value={watch('location') ?? ''} onValueChange={(v) => setValue('location', v)}>
-                <SelectTrigger><SelectValue placeholder="Where is it kept?" /></SelectTrigger>
-                <SelectContent>
-                  {LOCATION_OPTIONS.map((loc) => (
-                    <SelectItem key={loc} value={loc}>{loc}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {!customLocationMode ? (
+                <Select
+                  value={watch('location') ?? ''}
+                  onValueChange={(v) => {
+                    if (v === '__custom__') {
+                      setCustomLocationMode(true);
+                      setValue('location', '');
+                    } else {
+                      setValue('location', v);
+                    }
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Where is it kept?" /></SelectTrigger>
+                  <SelectContent>
+                    {LOCATION_OPTIONS.map((loc) => (
+                      <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                    ))}
+                    <SelectItem value="__custom__">Custom location…</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex gap-2">
+                  <Input
+                    {...register('location')}
+                    placeholder="e.g. Vault 2, Counter B, Locker 3"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 text-xs"
+                    onClick={() => { setCustomLocationMode(false); setValue('location', ''); }}
+                  >
+                    Preset
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Opening Quantity</Label>

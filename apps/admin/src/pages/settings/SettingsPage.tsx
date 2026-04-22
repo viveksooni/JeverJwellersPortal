@@ -364,8 +364,8 @@ function MetalRatesSection() {
 function CategoriesSection() {
   const qc = useQueryClient();
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editValues, setEditValues] = useState({ name: '', description: '', skuPrefix: '', trackingType: 'template' });
-  const [newCat, setNewCat] = useState({ name: '', description: '', skuPrefix: '', trackingType: 'template' });
+  const [editValues, setEditValues] = useState({ name: '', description: '', skuPrefix: '' });
+  const [newCat, setNewCat] = useState({ name: '', description: '', skuPrefix: '' });
   const [adding, setAdding] = useState(false);
 
   const { data: categories = [] } = useQuery({
@@ -377,7 +377,7 @@ function CategoriesSection() {
     mutationFn: (data: typeof newCat) => api.post('/categories', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['categories'] });
-      setNewCat({ name: '', description: '', skuPrefix: '', trackingType: 'template' });
+      setNewCat({ name: '', description: '', skuPrefix: '' });
       setAdding(false);
       toast({ variant: 'success', title: 'Category added' });
     },
@@ -409,7 +409,7 @@ function CategoriesSection() {
 
   function startEdit(cat: any) {
     setEditingId(cat.id);
-    setEditValues({ name: cat.name, description: cat.description ?? '', skuPrefix: cat.skuPrefix ?? '', trackingType: cat.trackingType ?? 'template' });
+    setEditValues({ name: cat.name, description: cat.description ?? '', skuPrefix: cat.skuPrefix ?? '' });
   }
 
   return (
@@ -425,29 +425,21 @@ function CategoriesSection() {
           Categories are jewelry types (Ring, Necklace, etc.). The SKU prefix combines with metal prefix to form the product SKU — e.g. Gold Ring uses prefix <strong>GR</strong>.
         </p>
 
-        <div className="grid grid-cols-[1fr_1fr_80px_120px_72px] gap-2 px-2 pb-1">
+        <div className="grid grid-cols-[1fr_1fr_80px_72px] gap-2 px-2 pb-1">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Name</span>
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Description</span>
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">SKU Prefix</span>
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tracking</span>
           <span />
         </div>
 
         <div className="space-y-1">
           {categories.map((cat: any) => (
-            <div key={cat.id} className="grid grid-cols-[1fr_1fr_80px_120px_72px] gap-2 items-center rounded-md border border-border px-2 py-1.5">
+            <div key={cat.id} className="grid grid-cols-[1fr_1fr_80px_72px] gap-2 items-center rounded-md border border-border px-2 py-1.5">
               {editingId === cat.id ? (
                 <>
                   <Input value={editValues.name} onChange={(e) => setEditValues(v => ({ ...v, name: e.target.value }))} className="h-7 text-sm" />
                   <Input value={editValues.description} onChange={(e) => setEditValues(v => ({ ...v, description: e.target.value }))} className="h-7 text-sm" placeholder="Description" />
                   <Input value={editValues.skuPrefix} onChange={(e) => setEditValues(v => ({ ...v, skuPrefix: e.target.value.toUpperCase() }))} className="h-7 text-sm font-mono" placeholder="e.g. R" maxLength={10} />
-                  <Select value={editValues.trackingType} onValueChange={(v) => setEditValues(ev => ({ ...ev, trackingType: v }))}>
-                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="template">Template</SelectItem>
-                      <SelectItem value="per_piece">Per Piece</SelectItem>
-                    </SelectContent>
-                  </Select>
                   <div className="flex gap-1">
                     <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-green-600" onClick={() => updateMutation.mutate({ id: cat.id, data: editValues })} disabled={updateMutation.isPending}>
                       {updateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
@@ -464,10 +456,6 @@ function CategoriesSection() {
                   <span className="text-xs font-mono font-semibold text-gold-700 bg-gold-50 border border-gold-200 rounded px-1.5 py-0.5 w-fit">
                     {cat.skuPrefix || '—'}
                   </span>
-                  <span className={cn('text-[11px] font-semibold px-2 py-0.5 rounded-full border w-fit',
-                    cat.trackingType === 'per_piece' ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-slate-50 text-slate-600 border-slate-200')}>
-                    {cat.trackingType === 'per_piece' ? 'Per Piece' : 'Template'}
-                  </span>
                   <div className="flex gap-1">
                     <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => startEdit(cat)}>
                       <Pencil className="h-3.5 w-3.5" />
@@ -483,22 +471,15 @@ function CategoriesSection() {
         </div>
 
         {adding && (
-          <div className="grid grid-cols-[1fr_1fr_80px_120px_72px] gap-2 items-center rounded-md border border-gold-300 bg-gold-50 px-2 py-2">
+          <div className="grid grid-cols-[1fr_1fr_80px_72px] gap-2 items-center rounded-md border border-gold-300 bg-gold-50 px-2 py-2">
             <Input value={newCat.name} onChange={(e) => setNewCat(v => ({ ...v, name: e.target.value }))} placeholder="Category name" className="h-7 text-sm" autoFocus />
             <Input value={newCat.description} onChange={(e) => setNewCat(v => ({ ...v, description: e.target.value }))} placeholder="Description (optional)" className="h-7 text-sm" />
             <Input value={newCat.skuPrefix} onChange={(e) => setNewCat(v => ({ ...v, skuPrefix: e.target.value.toUpperCase() }))} placeholder="e.g. R" className="h-7 text-sm font-mono" maxLength={10} />
-            <Select value={newCat.trackingType} onValueChange={(v) => setNewCat(nc => ({ ...nc, trackingType: v }))}>
-              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="template">Template</SelectItem>
-                <SelectItem value="per_piece">Per Piece</SelectItem>
-              </SelectContent>
-            </Select>
             <div className="flex gap-1">
               <Button size="sm" variant="gold" className="h-7 w-7 p-0" onClick={() => createMutation.mutate(newCat)} disabled={!newCat.name || createMutation.isPending}>
                 {createMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               </Button>
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setAdding(false); setNewCat({ name: '', description: '', skuPrefix: '', trackingType: 'template' }); }}>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setAdding(false); setNewCat({ name: '', description: '', skuPrefix: '' }); }}>
                 <X className="h-3.5 w-3.5" />
               </Button>
             </div>

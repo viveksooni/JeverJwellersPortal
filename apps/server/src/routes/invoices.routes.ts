@@ -123,6 +123,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         unitPrice: item.unitPrice,
         totalPrice: item.totalPrice,
         isExchangeItem: item.isExchangeItem,
+        metalType: item.metalType,
       })),
       totalAmount: txn.totalAmount,
       discountAmount: txn.discountAmount,
@@ -132,7 +133,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       taxAmount: txn.taxAmount,
       finalAmount: txn.finalAmount,
       amountPaid: txn.amountPaid,
+      paymentDate: new Date(txn.transactionDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }),
       notes: txn.notes,
+      shopBankAccount: s.shop_bank_account ?? '',
+      shopBankName: s.shop_bank_name ?? '',
+      shopBankBranch: s.shop_bank_branch ?? '',
+      shopBankIfsc: s.shop_bank_ifsc ?? '',
+      shopTerms: s.shop_terms ?? '',
     });
 
     const [invoice] = await db

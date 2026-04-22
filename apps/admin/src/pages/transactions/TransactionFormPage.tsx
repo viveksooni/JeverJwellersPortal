@@ -44,6 +44,7 @@ const itemSchema = z.object({
   unitPrice: z.string().default('0'),
   totalPrice: z.string().default('0'),
   isExchangeItem: z.boolean().default(false),
+  maxQty: z.coerce.number().optional(),     // UI-only: available stock limit
 });
 
 const formSchema = z.object({
@@ -285,9 +286,10 @@ function CustomerSection({ setValue }: { setValue: any }) {
 
 // ─── Enhanced Product Search ──────────────────────────────────────────────────
 
-function ProductSearchInput({ todayRates, onSelect }: {
+function ProductSearchInput({ todayRates, onSelect, selectedProductIds = new Set() }: {
   todayRates: Record<string, string>;
   onSelect: (product: any, rate: string | null) => void;
+  selectedProductIds?: Set<string>;
 }) {
   const [q, setQ] = useState('');
   const [categoryId, setCategoryId] = useState('all');
@@ -400,6 +402,7 @@ function ProductSearchInput({ todayRates, onSelect }: {
               const rate = rateKey ? (todayRates[rateKey] ?? null) : null;
               const stock = p.inventory?.quantity ?? 0;
               const outOfStock = stock === 0;
+              const isSelected = selectedProductIds.has(String(p.id));
               const stockColor = outOfStock
                 ? 'text-red-500'
                 : stock <= 2
@@ -412,7 +415,10 @@ function ProductSearchInput({ todayRates, onSelect }: {
                   type="button"
                   onClick={() => onSelect(p, rate)}
                   className={cn(
-                    'w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none',
+                    'w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors focus-visible:outline-none',
+                    isSelected
+                      ? 'bg-gold-50 border-l-2 border-gold-500 hover:bg-gold-100'
+                      : 'hover:bg-accent',
                     outOfStock && 'opacity-60',
                   )}
                 >
@@ -441,8 +447,13 @@ function ProductSearchInput({ todayRates, onSelect }: {
                     </div>
                   </div>
 
-                  {/* Stock + weight */}
-                  <div className="text-right shrink-0">
+                  {/* Stock + weight + selected indicator */}
+                  <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
+                    {isSelected && (
+                      <span className="text-[10px] font-semibold text-gold-600 bg-gold-100 px-1.5 py-0.5 rounded-full">
+                        Added
+                      </span>
+                    )}
                     <span className={cn('text-xs font-semibold', stockColor)}>
                       {outOfStock ? 'Out of stock' : `${stock} in stock`}
                     </span>
@@ -481,6 +492,9 @@ function LineItemRow({ index, register, watch, setValue, remove, isExchange, tod
   const stone      = parseFloat(watch(`items.${index}.stoneCharge`) || '0');
   const makingRaw  = parseFloat(watch(`items.${index}.makingCharge`) || '0');
   const makingType = watch(`items.${index}.makingType`) || 'flat';
+  const maxQty     = watch(`items.${index}.maxQty`) as number | undefined;
+  const stockLimit = (maxQty !== undefined && maxQty > 0) ? maxQty : undefined;
+  const atMaxStock = stockLimit !== undefined && qty >= stockLimit;
 
   // Rate locked from central rates
   const rateKey = getRateKey(metalType || null, purity || null);
@@ -526,7 +540,27 @@ function LineItemRow({ index, register, watch, setValue, remove, isExchange, tod
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
         <div className="space-y-1">
           <Label className="text-xs">Qty</Label>
-          <Input {...register(`items.${index}.quantity`)} type="number" min="1" className="text-sm h-8" />
+          <Input
+            {...register(`items.${index}.quantity`)}
+            type="number"
+            min="1"
+            max={stockLimit}
+            onChange={(e) => {
+              const val = parseInt(e.target.value) || 1;
+              const clamped = stockLimit ? Math.min(val, stockLimit) : val;
+              setValue(`items.${index}.quantity`, Math.max(1, clamped));
+            }}
+            className={cn('text-sm h-8', atMaxStock && 'border-amber-500')}
+          />
+          {maxQty !== undefined && (
+            <p className={cn('text-[10px] mt-0.5',
+              maxQty === 0 ? 'text-red-500' :
+              atMaxStock ? 'text-amber-600 font-medium' :
+              'text-muted-foreground'
+            )}>
+              {maxQty === 0 ? 'Out of stock' : atMaxStock ? `Max ${maxQty} in stock` : `${maxQty} in stock`}
+            </p>
+          )}
         </div>
 
         <div className="space-y-1">
@@ -702,6 +736,7 @@ export function TransactionFormPage() {
       unitPrice: unitPrice.toFixed(2),
       totalPrice: unitPrice.toFixed(2),
       isExchangeItem: false,
+      maxQty: product.inventory?.quantity ?? undefined,
     });
   }, [append, type]);
 
@@ -800,7 +835,11 @@ export function TransactionFormPage() {
               </CardHeader>
               <CardContent className="space-y-3 relative">
                 {!isRepair && (
-                  <ProductSearchInput todayRates={todayRates as Record<string, string>} onSelect={handleProductSelect} />
+                  <ProductSearchInput
+                    todayRates={todayRates as Record<string, string>}
+                    onSelect={handleProductSelect}
+                    selectedProductIds={new Set(items.filter(i => i.productId).map(i => String(i.productId)))}
+                  />
                 )}
 
                 {fields.length === 0 && !isRepair && (

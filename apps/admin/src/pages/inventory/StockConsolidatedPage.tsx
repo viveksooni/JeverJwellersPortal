@@ -335,7 +335,7 @@ export function StockConsolidatedPage() {
                     </td>
 
                     <td className="px-4 py-3">
-                      <Link to={`/transactions/${txn.id}`}>
+                      <Link to={`/transactions/${txn.id}`} state={{ from: '/stock' }}>
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0">
                           <ArrowRight className="h-3.5 w-3.5" />
                         </Button>

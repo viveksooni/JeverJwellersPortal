@@ -8,6 +8,7 @@ import {
   Settings,
   ShoppingCart,
   BookOpen,
+  LogOut,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -84,9 +85,13 @@ interface AppSidebarProps {
   logoUrl?: string | null;
   shopName?: string;
   collapsed: boolean;
+  user?: { name?: string; email?: string } | null;
+  onLogout?: () => void;
 }
 
-export function AppSidebar({ logoUrl, shopName = 'Jever Jwellers', collapsed }: AppSidebarProps) {
+export function AppSidebar({ logoUrl, shopName = 'Jever Jwellers', collapsed, user, onLogout }: AppSidebarProps) {
+  const initials = user?.name?.[0]?.toUpperCase() ?? 'A';
+
   return (
     <aside
       className={cn(
@@ -94,7 +99,7 @@ export function AppSidebar({ logoUrl, shopName = 'Jever Jwellers', collapsed }: 
         collapsed ? 'w-16' : 'w-[220px]',
       )}
     >
-      {/* Logo + Shop Name — collapsed mode = row-wise compact (icon only) */}
+      {/* Logo + Shop Name */}
       <div
         className={cn(
           'flex items-center gap-3 px-3 py-4 border-b border-[hsl(var(--sidebar-border))] h-14',
@@ -132,6 +137,50 @@ export function AppSidebar({ logoUrl, shopName = 'Jever Jwellers', collapsed }: 
         <SidebarSection label="Operations" items={OPS_NAV} collapsed={collapsed} />
         <SidebarSection label="Other" items={OTHER_NAV} collapsed={collapsed} />
       </nav>
+
+      {/* Bottom: User info + Logout */}
+      <div className={cn(
+        'border-t border-[hsl(var(--sidebar-border))] px-2 py-3 shrink-0',
+        collapsed ? 'flex flex-col items-center gap-2' : 'space-y-2',
+      )}>
+        {!collapsed && (
+          <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-md">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gold-500/20 text-gold-700 text-xs font-semibold shrink-0">
+              {initials}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-[hsl(var(--sidebar-foreground))] truncate leading-tight">
+                {user?.name ?? 'Admin'}
+              </p>
+              <p className="text-[10px] text-[hsl(var(--sidebar-foreground)/0.5)] truncate">
+                {user?.email ?? ''}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {collapsed && (
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-gold-500/20 text-gold-700 text-xs font-semibold shrink-0"
+            title={`${user?.name ?? 'Admin'} · ${user?.email ?? ''}`}
+          >
+            {initials}
+          </div>
+        )}
+
+        <button
+          onClick={onLogout}
+          title="Logout"
+          className={cn(
+            'flex items-center gap-2 rounded-md px-2 py-1.5 text-xs w-full transition-colors',
+            'text-[hsl(var(--sidebar-foreground)/0.6)] hover:text-red-400 hover:bg-red-500/10',
+            collapsed && 'justify-center px-0 w-auto',
+          )}
+        >
+          <LogOut className="h-3.5 w-3.5 shrink-0" />
+          {!collapsed && <span>Logout</span>}
+        </button>
+      </div>
     </aside>
   );
 }

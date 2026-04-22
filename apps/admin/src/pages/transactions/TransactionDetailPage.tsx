@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Download, Eye, MessageCircle, Receipt,
@@ -123,6 +123,8 @@ function GenerateInvoiceModal({
 
 export function TransactionDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const backTo = (location.state as any)?.from ?? '/transactions';
   const qc = useQueryClient();
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [partialAmount, setPartialAmount] = useState('');
@@ -186,7 +188,7 @@ export function TransactionDetailPage() {
       {/* Header */}
       <div className="border-b border-border px-6 py-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Link to="/transactions">
+          <Link to={backTo}>
             <Button variant="ghost" size="icon" className="h-9 w-9">
               <ArrowLeft className="h-4 w-4" />
             </Button>

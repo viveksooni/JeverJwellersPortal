@@ -59,10 +59,8 @@ async function main() {
     { metalType: 'gold_24k', ratePerGram: '6800.00', effectiveDate: today },
     { metalType: 'gold_22k', ratePerGram: '6233.00', effectiveDate: today },
     { metalType: 'gold_18k', ratePerGram: '5100.00', effectiveDate: today },
-    { metalType: 'gold_14k', ratePerGram: '3978.00', effectiveDate: today },
-    { metalType: 'silver_999', ratePerGram: '85.00', effectiveDate: today },
-    { metalType: 'silver_925', ratePerGram: '79.00', effectiveDate: today },
-    { metalType: 'platinum_950', ratePerGram: '3200.00', effectiveDate: today },
+    { metalType: 'silver',     ratePerGram: '85.00',   effectiveDate: today },
+    { metalType: 'silver_925', ratePerGram: '79.00',   effectiveDate: today },
   ]).onConflictDoNothing();
 
   console.log('Seeding complete!');

@@ -102,12 +102,12 @@ function buildHtml(data: InvoiceData): string {
   .shop-name { font-size: 28px; font-weight: 700; color: #C9972A; letter-spacing: 1px; }
   .invoice-title { font-size: 20px; font-weight: 600; color: #8B6914; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; border-bottom: 2px solid #C9972A; padding-bottom: 16px; }
-  .shop-info { line-height: 1.6; color: #555; font-size: 11px; }
+  .shop-info { line-height: 1.6; color: #555; font-size: 11px; word-break: break-word; overflow-wrap: break-word; max-width: 300px; }
   .invoice-meta { text-align: right; }
   .invoice-meta .label { color: #888; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
   .invoice-meta .value { font-weight: 600; font-size: 13px; }
   .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 20px; }
-  .party-box { background: #faf7f0; border: 1px solid #e8dcc0; border-radius: 6px; padding: 12px 16px; }
+  .party-box { background: #faf7f0; border: 1px solid #e8dcc0; border-radius: 6px; padding: 12px 16px; word-break: break-word; overflow-wrap: break-word; }
   .party-box .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #C9972A; font-weight: 600; margin-bottom: 4px; }
   .party-box .name { font-size: 14px; font-weight: 600; font-family: 'Cormorant Garamond', serif; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }

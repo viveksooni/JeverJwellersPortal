@@ -8,8 +8,8 @@ import { authenticate, AuthRequest } from '../middleware/auth.js';
 
 // Default built-in rate keys (always shown even if no DB entry yet)
 const DEFAULT_RATE_KEYS = [
-  'gold_24k', 'gold_22k', 'gold_18k', 'gold_14k',
-  'silver_999', 'silver_925', 'platinum_950',
+  'gold_24k', 'gold_22k', 'gold_18k',
+  'silver', 'silver_925',
 ];
 
 /** Auto-generate a display label from a snake_case key like "gold_22k" → "Gold 22K" */

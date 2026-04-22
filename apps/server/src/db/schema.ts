@@ -169,8 +169,9 @@ export const transactionItems = pgTable('transaction_items', {
   stoneCharge: numeric('stone_charge', { precision: 10, scale: 2 }).default('0').notNull(),
   unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
   totalPrice: numeric('total_price', { precision: 12, scale: 2 }).notNull(),
+  metalType: varchar('metal_type', { length: 50 }),
   isExchangeItem: boolean('is_exchange_item').default(false).notNull(),
-  pieceId: uuid('piece_id'), // filled when selling a per-piece tracked item
+  pieceId: uuid('piece_id'),
 });
 
 // ─── Repair Orders ────────────────────────────────────────────────────────────

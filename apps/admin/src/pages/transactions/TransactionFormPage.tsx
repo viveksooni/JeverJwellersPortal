@@ -8,7 +8,7 @@ import { format } from 'date-fns';
 import {
   Plus, Trash2, Loader2, Search, ShoppingCart, ShoppingBag,
   Wrench, ArrowLeftRight, Gem, User, Phone, Mail, MapPin,
-  Lock, CalendarIcon, Tag, ChevronDown,
+  Lock, CalendarIcon,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -78,19 +78,19 @@ const TYPE_META: Record<string, { label: string; icon: React.ElementType; color:
   custom_order: { label: 'Custom Order', icon: Gem, color: 'text-amber-600' },
 };
 
-// Build rate lookup key like "gold_22k", "silver_999"
-// Falls back to inferring metal from purity string when metalType not given
+// Build rate lookup key: gold_24k / gold_22k / gold_18k / silver / silver_925
 function getRateKey(metalType?: string | null, purity?: string | null): string | null {
-  if (!purity) return null;
-  const p = purity.toLowerCase().replace(/\s/g, '');
   const mt = metalType?.toLowerCase();
+  const p = purity?.toLowerCase().replace(/\s/g, '') ?? '';
 
-  if (mt) return `${mt}_${p}`;
-
-  // Infer from purity
-  if (['24k', '22k', '18k', '14k'].includes(p)) return `gold_${p}`;
-  if (['999', '925'].includes(p)) return `silver_${p}`;
-  if (p === '950') return 'platinum_950';
+  if (mt === 'gold') {
+    if (['24k', '22k', '18k'].includes(p)) return `gold_${p}`;
+    return null;
+  }
+  if (mt === 'silver') {
+    if (p === '925') return 'silver_925';
+    return 'silver'; // plain silver (covers 'silver', 'standard', etc.)
+  }
   return null;
 }
 
@@ -292,7 +292,6 @@ function ProductSearchInput({ todayRates, onSelect }: {
   const [q, setQ] = useState('');
   const [categoryId, setCategoryId] = useState('all');
   const [metalType, setMetalType] = useState('all');
-  const [trackingType, setTrackingType] = useState('all');
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
@@ -307,25 +306,18 @@ function ProductSearchInput({ todayRates, onSelect }: {
   });
 
   const { data: results = [], isLoading } = useQuery({
-    queryKey: ['product-search-all', q, categoryId, metalType, trackingType],
+    queryKey: ['product-search-all', q, categoryId, metalType],
     queryFn: () => {
       const params = new URLSearchParams({ limit: '200' });
       if (q.length >= 1) params.set('search', q);
       if (categoryId !== 'all') params.set('categoryId', categoryId);
       if (metalType !== 'all') params.set('metalType', metalType);
-      return api.get(`/products?${params}`).then((r) => {
-        let data = r.data.data ?? [];
-        // Client-side tracking type filter (server doesn't support it yet)
-        if (trackingType !== 'all') {
-          data = data.filter((p: any) => p.trackingType === trackingType);
-        }
-        return data;
-      });
+      return api.get(`/products?${params}`).then((r) => r.data.data ?? []);
     },
     staleTime: 60_000,
   });
 
-  const hasActiveFilters = categoryId !== 'all' || metalType !== 'all' || trackingType !== 'all' || q.length >= 1;
+  const hasActiveFilters = categoryId !== 'all' || metalType !== 'all' || q.length >= 1;
 
   return (
     <div className="space-y-3">
@@ -356,17 +348,6 @@ function ProductSearchInput({ todayRates, onSelect }: {
           </SelectContent>
         </Select>
 
-        <Select value={trackingType} onValueChange={setTrackingType}>
-          <SelectTrigger className="w-28 h-8 text-xs shrink-0">
-            <SelectValue placeholder="Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
-            <SelectItem value="per_piece">Per Piece</SelectItem>
-            <SelectItem value="template">Bulk / Template</SelectItem>
-          </SelectContent>
-        </Select>
-
         {/* Text search */}
         <div className="relative flex-1 min-w-[160px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
@@ -384,7 +365,7 @@ function ProductSearchInput({ todayRates, onSelect }: {
             variant="ghost"
             size="sm"
             className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground shrink-0"
-            onClick={() => { setCategoryId('all'); setMetalType('all'); setTrackingType('all'); setQ(''); }}
+            onClick={() => { setCategoryId('all'); setMetalType('all'); setQ(''); }}
           >
             Clear
           </Button>
@@ -406,21 +387,19 @@ function ProductSearchInput({ todayRates, onSelect }: {
               <button
                 type="button"
                 className="text-gold-600 hover:underline text-xs mt-0.5"
-                onClick={() => { setCategoryId('all'); setMetalType('all'); setTrackingType('all'); setQ(''); }}
+                onClick={() => { setCategoryId('all'); setMetalType('all'); setQ(''); }}
               >
                 Clear filters
               </button>
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-px bg-border">
+          <div className="divide-y divide-border">
             {(results as any[]).map((p: any) => {
               const rateKey = getRateKey(p.metalType, p.purity);
               const rate = rateKey ? (todayRates[rateKey] ?? null) : null;
-              const isPerPiece = p.trackingType === 'per_piece';
               const stock = p.inventory?.quantity ?? 0;
               const outOfStock = stock === 0;
-              const stockLabel = isPerPiece ? `${stock} pcs` : `${stock}`;
               const stockColor = outOfStock
                 ? 'text-red-500'
                 : stock <= 2
@@ -433,43 +412,42 @@ function ProductSearchInput({ todayRates, onSelect }: {
                   type="button"
                   onClick={() => onSelect(p, rate)}
                   className={cn(
-                    'flex flex-col items-start gap-1.5 bg-background p-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    'w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none',
                     outOfStock && 'opacity-60',
                   )}
                 >
                   {/* Thumbnail */}
-                  <div className="w-full aspect-square rounded-md overflow-hidden bg-secondary flex items-center justify-center">
+                  <div className="h-10 w-10 shrink-0 rounded-md overflow-hidden bg-secondary flex items-center justify-center">
                     {p.images?.[0] ? (
                       <img src={p.images[0].url} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <Gem className="h-5 w-5 text-muted-foreground" />
+                      <Gem className="h-4 w-4 text-muted-foreground" />
                     )}
                   </div>
 
-                  {/* Name */}
-                  <p className="text-xs font-semibold leading-tight line-clamp-2 w-full">{p.name}</p>
-
-                  {/* SKU + purity */}
-                  <div className="flex flex-wrap items-center gap-1 w-full">
-                    {p.sku && (
-                      <span className="font-mono text-[10px] font-bold text-gold-600 truncate max-w-full">
-                        {p.sku}
-                      </span>
-                    )}
-                    {p.purity && (
-                      <span className="rounded bg-secondary px-1 py-px text-[9px] font-medium text-muted-foreground">
-                        {p.purity}
-                      </span>
-                    )}
+                  {/* Details */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate leading-tight">{p.name}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {p.sku && (
+                        <span className="font-mono text-[10px] font-bold text-gold-600">{p.sku}</span>
+                      )}
+                      {p.purity && (
+                        <span className="text-[10px] text-muted-foreground uppercase">{p.purity}</span>
+                      )}
+                      {p.metalType && (
+                        <span className="text-[10px] text-muted-foreground capitalize">{p.metalType}</span>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Stock count */}
-                  <div className="flex items-center justify-between w-full mt-auto">
-                    <span className={cn('text-[10px] font-semibold', stockColor)}>
-                      {outOfStock ? 'Out of stock' : stockLabel}
+                  {/* Stock + weight */}
+                  <div className="text-right shrink-0">
+                    <span className={cn('text-xs font-semibold', stockColor)}>
+                      {outOfStock ? 'Out of stock' : `${stock} in stock`}
                     </span>
-                    {isPerPiece && (
-                      <span className="text-[9px] text-amber-600 font-medium">piece →</span>
+                    {p.grossWeightG && (
+                      <p className="text-[10px] text-muted-foreground">{parseFloat(p.grossWeightG).toFixed(3)}g</p>
                     )}
                   </div>
                 </button>
@@ -487,99 +465,6 @@ function ProductSearchInput({ todayRates, onSelect }: {
         </p>
       )}
     </div>
-  );
-}
-
-// ─── Piece Picker Dialog ──────────────────────────────────────────────────────
-// Shown when adding a per-piece tracked product to a sale
-
-function PiecePickerDialog({
-  open, onClose, product, todayRates, onSelect,
-}: {
-  open: boolean;
-  onClose: () => void;
-  product: any;
-  todayRates: Record<string, string>;
-  onSelect: (product: any, piece: any, rate: string | null) => void;
-}) {
-  const { data: pieces = [], isLoading } = useQuery({
-    queryKey: ['pieces', product?.id],
-    queryFn: () => api.get(`/pieces?productId=${product.id}`).then((r) => r.data.data),
-    enabled: !!product?.id && open,
-  });
-
-  const inStockPieces = pieces.filter((p: any) => p.status === 'in_stock');
-  const rateKey = product ? getRateKey(product.metalType, product.purity) : null;
-  const rate = rateKey ? (todayRates[rateKey] ?? null) : null;
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Select Piece — {product?.name}</DialogTitle>
-          <p className="text-xs text-muted-foreground pt-1">
-            Choose the specific physical piece to sell. Each piece has its exact weight recorded.
-          </p>
-        </DialogHeader>
-
-        {isLoading && (
-          <div className="flex items-center justify-center py-8 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading pieces…
-          </div>
-        )}
-
-        {!isLoading && inStockPieces.length === 0 && (
-          <div className="text-center py-8 text-muted-foreground text-sm">
-            No in-stock pieces found for this product.
-            <br />Add pieces in Inventory → View Pieces.
-          </div>
-        )}
-
-        <div className="space-y-2 max-h-80 overflow-y-auto">
-          {inStockPieces.map((piece: any) => {
-            const metalPrice = rate && piece.grossWeightG
-              ? parseFloat(rate) * parseFloat(piece.grossWeightG)
-              : 0;
-            const makingRaw = parseFloat(product?.makingCharge ?? '0');
-            const makingType = product?.makingType ?? 'flat';
-            const makingValue =
-              makingType === 'per_gram' ? makingRaw * parseFloat(piece.grossWeightG ?? '0') :
-              makingType === 'percentage' ? (metalPrice * makingRaw) / 100 : makingRaw;
-            const estimatedPrice = metalPrice + makingValue;
-
-            return (
-              <button
-                key={piece.id}
-                type="button"
-                className="w-full flex items-center justify-between rounded-lg border border-border hover:border-gold-400 hover:bg-gold-50 px-4 py-3 text-left transition-colors"
-                onClick={() => { onSelect(product, piece, rate); onClose(); }}
-              >
-                <div className="space-y-0.5">
-                  <p className="font-mono font-semibold text-gold-700 text-sm">{piece.tagNo ?? 'No Tag'}</p>
-                  <div className="flex gap-3 text-xs text-muted-foreground">
-                    <span>Gross: <strong className="text-foreground">{parseFloat(piece.grossWeightG ?? '0').toFixed(3)}g</strong></span>
-                    {piece.netWeightG && <span>Net: {parseFloat(piece.netWeightG).toFixed(3)}g</span>}
-                    <span>{piece.purity ?? product?.purity}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  {estimatedPrice > 0 && (
-                    <p className="text-sm font-semibold text-gold-600">
-                      ~₹{Math.round(estimatedPrice).toLocaleString('en-IN')}
-                    </p>
-                  )}
-                  <p className="text-[10px] text-muted-foreground">est. price</p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -654,7 +539,6 @@ function LineItemRow({ index, register, watch, setValue, remove, isExchange, tod
             <SelectContent>
               <SelectItem value="gold">Gold</SelectItem>
               <SelectItem value="silver">Silver</SelectItem>
-              <SelectItem value="platinum">Platinum</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -670,12 +554,10 @@ function LineItemRow({ index, register, watch, setValue, remove, isExchange, tod
             </SelectTrigger>
             <SelectContent>
               {(metalType === 'silver'
-                ? ['999', '925']
-                : metalType === 'platinum'
-                ? ['950']
-                : ['24k', '22k', '18k', '14k']
-              ).map((p) => (
-                <SelectItem key={p} value={p}>{p.toUpperCase()}</SelectItem>
+                ? [{ v: 'silver', label: 'Silver' }, { v: '925', label: '925' }]
+                : [{ v: '24k', label: '24K' }, { v: '22k', label: '22K' }, { v: '18k', label: '18K' }]
+              ).map(({ v, label }) => (
+                <SelectItem key={v} value={v}>{label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -766,9 +648,6 @@ export function TransactionFormPage() {
 
   const { fields, append, remove } = useFieldArray({ control, name: 'items' });
 
-  // Per-piece picker state
-  const [pendingProduct, setPendingProduct] = useState<any>(null);
-
   // Today's rates (locked)
   const { data: todayRates = {} } = useQuery<Record<string, string>>({
     queryKey: ['rates', 'today'],
@@ -783,49 +662,26 @@ export function TransactionFormPage() {
   const gstEnabled = watch('gstEnabled');
   const transactionDate = watch('transactionDate');
   const repairDeliveryDate = watch('repairDeliveryDate');
+  const paymentStatus = watch('paymentStatus');
 
   const subtotal = items.reduce((s, item) => s + parseFloat(item.totalPrice || '0'), 0);
   const finalAmount = subtotal - discount + taxAmount;
 
-  // Add item from a specific piece (per-piece sale)
-  const handlePieceSelect = useCallback((product: any, piece: any, rate: string | null) => {
-    const weight = piece.grossWeightG ?? product.grossWeightG ?? '';
-    const purity = piece.purity ?? product.purity ?? '';
-    const makingRaw = parseFloat(product.makingCharge ?? '0');
-    const makingType = product.makingType ?? 'flat';
-    const metalPrice = rate && weight ? parseFloat(rate) * parseFloat(weight) : 0;
-    const makingValue =
-      makingType === 'per_gram' ? makingRaw * parseFloat(weight || '0') :
-      makingType === 'percentage' ? (metalPrice * makingRaw) / 100 : makingRaw;
-    const unitPrice = metalPrice + makingValue;
-
-    append({
-      productId: product.id,
-      pieceId: piece.id,
-      productName: `${product.name} [${piece.tagNo ?? piece.id.slice(0, 6)}]`,
-      metalType: product.metalType ?? '',
-      quantity: 1,
-      purity,
-      weightG: String(weight),
-      ratePerGram: rate ? String(parseFloat(rate)) : '',
-      makingCharge: String(makingRaw),
-      makingType,
-      stoneCharge: '0',
-      unitPrice: unitPrice.toFixed(2),
-      totalPrice: unitPrice.toFixed(2),
-      isExchangeItem: false,
-    });
-  }, [append]);
-
-  // Add product from search — if per_piece, open piece picker first
-  const handleProductSelect = useCallback((product: any, rate: string | null) => {
-    if (product.trackingType === 'per_piece' && type === 'sale') {
-      setPendingProduct(product);
-      return;
+  // When fully paid, auto-fill amountPaid with the total
+  useEffect(() => {
+    if (paymentStatus === 'paid') {
+      setValue('amountPaid', finalAmount.toFixed(2));
     }
+  }, [paymentStatus, finalAmount, setValue]);
+
+  // Add product from search
+  const handleProductSelect = useCallback((product: any, rate: string | null) => {
     const weight = product.grossWeightG ?? '';
-    const makingRaw = parseFloat(product.makingCharge ?? '0');
-    const makingType = product.makingType ?? 'flat';
+    const metalT = (product.metalType ?? '').toLowerCase();
+    const defaultMakingType = metalT === 'gold' ? 'percentage' : metalT === 'silver' ? 'per_gram' : 'flat';
+    const defaultMakingCharge = metalT === 'gold' ? '18' : '0';
+    const makingType: 'flat' | 'per_gram' | 'percentage' = product.makingType ?? defaultMakingType;
+    const makingRaw = parseFloat(product.makingCharge && parseFloat(product.makingCharge) !== 0 ? product.makingCharge : defaultMakingCharge);
     const metalPrice = rate && weight ? parseFloat(rate) * parseFloat(weight) : 0;
     const makingValue =
       makingType === 'per_gram' ? makingRaw * parseFloat(weight || '0') :
@@ -851,7 +707,7 @@ export function TransactionFormPage() {
 
   const addEmptyItem = (isExchangeItem = false) => append({
     productId: undefined, productName: '', metalType: 'gold', quantity: 1,
-    purity: '', weightG: '', ratePerGram: '', makingCharge: '', makingType: 'flat',
+    purity: '', weightG: '', ratePerGram: '', makingCharge: '18', makingType: 'percentage',
     stoneCharge: '0', unitPrice: '0', totalPrice: '0', isExchangeItem,
   });
 
@@ -905,10 +761,10 @@ export function TransactionFormPage() {
   });
 
   return (
-    <div className="flex flex-col h-full">
+    <div>
       <PageHeader title={meta.label} description={`Type: ${type.replace('_', ' ')}`} />
 
-      <form onSubmit={handleSubmit((v) => mutation.mutate(v))} className="flex-1 overflow-y-auto p-6 space-y-5">
+      <form onSubmit={handleSubmit((v) => mutation.mutate(v))} className="p-6 space-y-5">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
           {/* ── Left column ── */}
@@ -1102,7 +958,13 @@ export function TransactionFormPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs">Amount Paid (₹)</Label>
-                    <Input {...register('amountPaid')} placeholder="0.00" className="h-9 text-sm" />
+                    <Input
+                      {...register('amountPaid')}
+                      placeholder="0.00"
+                      className={cn('h-9 text-sm', paymentStatus === 'paid' && 'bg-secondary cursor-not-allowed text-muted-foreground')}
+                      disabled={paymentStatus === 'paid'}
+                      readOnly={paymentStatus === 'paid'}
+                    />
                   </div>
                 </div>
               </CardContent>
@@ -1137,16 +999,6 @@ export function TransactionFormPage() {
         </div>
       </form>
 
-      {/* Per-piece picker */}
-      {pendingProduct && (
-        <PiecePickerDialog
-          open={!!pendingProduct}
-          onClose={() => setPendingProduct(null)}
-          product={pendingProduct}
-          todayRates={todayRates as Record<string, string>}
-          onSelect={handlePieceSelect}
-        />
-      )}
     </div>
   );
 }

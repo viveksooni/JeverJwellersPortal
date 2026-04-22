@@ -32,6 +32,7 @@ pipeline {
                             set -e
 
                             echo "── Pulling latest code ──"
+                            sudo chown -R $(whoami):$(whoami) ${APP_DIR} || true
                             cd ${APP_DIR}
                             git fetch origin
                             git reset --hard origin/main

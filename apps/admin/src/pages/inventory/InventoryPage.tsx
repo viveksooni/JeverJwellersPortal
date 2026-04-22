@@ -325,9 +325,7 @@ export function InventoryPage() {
   const [search, setSearch] = useState('');
   const [showLowOnly, setShowLowOnly] = useState(() => searchParams.get('lowStock') === 'true');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [metalFilter, setMetalFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [trackingFilter, setTrackingFilter] = useState('all');
 
   const { data = [], isLoading } = useQuery({
     queryKey: ['inventory'],
@@ -339,11 +337,6 @@ export function InventoryPage() {
     queryFn: () => api.get('/categories').then((r) => r.data.data),
   });
 
-  const { data: metalTypes = [] } = useQuery({
-    queryKey: ['metal-types'],
-    queryFn: () => api.get('/settings/metal-types').then((r) => r.data.data),
-  });
-
   const filtered = data.filter((item: any) => {
     const p = item.product;
     if (!p) return false;
@@ -351,15 +344,13 @@ export function InventoryPage() {
       || p.name?.toLowerCase().includes(search.toLowerCase())
       || p.sku?.toLowerCase().includes(search.toLowerCase());
     const matchLow = !showLowOnly || item.quantity <= item.minStockAlert;
-    const matchMetal = metalFilter === 'all' || p.metalType === metalFilter;
     const matchCategory = categoryFilter === 'all' || String(p.categoryId) === categoryFilter;
-    const matchTracking = trackingFilter === 'all' || p.trackingType === trackingFilter;
-    return matchSearch && matchLow && matchMetal && matchCategory && matchTracking;
+    return matchSearch && matchLow && matchCategory;
   });
 
   const lowStockCount = data.filter((item: any) => item.quantity <= item.minStockAlert).length;
 
-  const hasActiveFilters = metalFilter !== 'all' || categoryFilter !== 'all' || trackingFilter !== 'all' || showLowOnly;
+  const hasActiveFilters = categoryFilter !== 'all' || showLowOnly;
 
   return (
     <div className="flex flex-col h-full">
@@ -389,30 +380,13 @@ export function InventoryPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Select value={metalFilter} onValueChange={setMetalFilter}>
-            <SelectTrigger className="w-36"><SelectValue placeholder="Metal" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Metals</SelectItem>
-              {metalTypes.map((m: any) => (
-                <SelectItem key={m.name} value={m.name}>{m.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-36"><SelectValue placeholder="Category" /></SelectTrigger>
+            <SelectTrigger className="w-44"><SelectValue placeholder="Category" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Categories</SelectItem>
               {categories.map((c: any) => (
                 <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
               ))}
-            </SelectContent>
-          </Select>
-          <Select value={trackingFilter} onValueChange={setTrackingFilter}>
-            <SelectTrigger className="w-36"><SelectValue placeholder="Tracking" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Tracking</SelectItem>
-              <SelectItem value="per_piece">Per Piece</SelectItem>
-              <SelectItem value="template">Template</SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -428,9 +402,7 @@ export function InventoryPage() {
               size="sm"
               className="text-muted-foreground"
               onClick={() => {
-                setMetalFilter('all');
                 setCategoryFilter('all');
-                setTrackingFilter('all');
                 setShowLowOnly(false);
               }}
             >

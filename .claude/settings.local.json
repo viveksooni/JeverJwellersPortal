@@ -41,7 +41,20 @@
       "Bash(curl -s -o /dev/null -w \" %{http_code}\" http://localhost:3001/api/auth/me)",
       "Bash(xargs grep:*)",
       "Bash(cat \"C:/Users/Asus/Desktop/Vivek/Inventory-tracker/Jever_jwellers/nginx/\"*.conf)",
-      "Bash(curl -s -X POST http://localhost:3001/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"admin@jever.com\",\"password\":\"admin123\"}')"
+      "Bash(curl -s -X POST http://localhost:3001/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"admin@jever.com\",\"password\":\"admin123\"}')",
+      "mcp__1a0ad79f-5553-4d40-a37c-d427c8163269__notion-search",
+      "mcp__1a0ad79f-5553-4d40-a37c-d427c8163269__notion-create-pages",
+      "Bash(docker info *)",
+      "Bash(npx drizzle-kit@latest studio --port 4983)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/drizzle-orm/package.json'\\).version\\)\")",
+      "Bash(findstr /i \"drizzle\")",
+      "Bash(node -e \"console.log\\(require\\('./apps/server/node_modules/drizzle-orm/package.json'\\).version\\)\")",
+      "Bash(npm ls *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(node_modules/.bin/drizzle-kit studio *)",
+      "Bash(DATABASE_URL=\"postgresql://jever_user:jever_pass@localhost:5432/jever_db\" node_modules/.bin/drizzle-kit studio --port 4983 --config apps/server/drizzle.config.ts)",
+      "Bash(echo \"EXITCODE=$?\")",
+      "Bash(where pdftoppm *)"
     ]
   }
 }

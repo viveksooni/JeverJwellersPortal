@@ -26,6 +26,7 @@ const itemSchema = z.object({
   productId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
   pieceId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
   productName: z.string().min(1),
+  metalType: z.preprocess(emptyToNull, z.string().nullable().optional()),
   quantity: z.number().int().min(1).default(1),
   weightG: z.preprocess(emptyToNull, z.string().nullable().optional()),
   purity: z.preprocess(emptyToNull, z.string().nullable().optional()),
@@ -78,8 +79,16 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (status) conditions.push(eq(transactions.status, status as string));
     if (paymentStatus) conditions.push(eq(transactions.paymentStatus, paymentStatus as string));
     if (customerId) conditions.push(eq(transactions.customerId, customerId as string));
-    if (from) conditions.push(gte(transactions.transactionDate, new Date(from as string)));
-    if (to) conditions.push(lte(transactions.transactionDate, new Date(to as string)));
+    if (from) {
+      const fromDate = new Date(from as string);
+      fromDate.setHours(0, 0, 0, 0);
+      conditions.push(gte(transactions.transactionDate, fromDate));
+    }
+    if (to) {
+      const toDate = new Date(to as string);
+      toDate.setHours(23, 59, 59, 999);
+      conditions.push(lte(transactions.transactionDate, toDate));
+    }
     if (search) conditions.push(ilike(transactions.transactionNo, `%${search}%`));
 
     const where = conditions.length ? and(...conditions) : undefined;

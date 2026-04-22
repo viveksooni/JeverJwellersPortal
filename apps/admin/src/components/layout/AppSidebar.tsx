@@ -1,21 +1,15 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
-  Gem,
   Package,
   Users,
   FileText,
   BarChart3,
   Settings,
   ShoppingCart,
-  LogOut,
-  ChevronLeft,
-  ChevronRight,
   BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAuthStore } from '@/store/authStore';
-import api from '@/lib/api';
 
 interface NavItem {
   label: string;
@@ -28,8 +22,7 @@ const NAV: NavItem[] = [
 ];
 
 const CATALOG_NAV: NavItem[] = [
-  { label: 'Products', icon: Gem, to: '/products' },
-  { label: 'Inventory', icon: Package, to: '/inventory' },
+  { label: 'Inventory', icon: Package, to: '/products' },
   { label: 'Day Book', icon: BookOpen, to: '/stock' },
 ];
 
@@ -46,10 +39,9 @@ const OTHER_NAV: NavItem[] = [
 
 function SidebarLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const location = useLocation();
-  // Exact match for routes that are prefixes of others (e.g. /products vs /products/categories)
-  const isActive = location.pathname === item.to || (
-    location.pathname.startsWith(item.to + '/') && item.to !== '/'
-  );
+  const isActive =
+    location.pathname === item.to ||
+    (location.pathname.startsWith(item.to + '/') && item.to !== '/');
 
   return (
     <NavLink
@@ -67,7 +59,7 @@ function SidebarLink({ item, collapsed }: { item: NavItem; collapsed: boolean })
       }
     >
       <item.icon className="h-4 w-4 shrink-0" />
-      {!collapsed && item.label}
+      {!collapsed && <span className="truncate">{item.label}</span>}
     </NavLink>
   );
 }
@@ -92,20 +84,9 @@ interface AppSidebarProps {
   logoUrl?: string | null;
   shopName?: string;
   collapsed: boolean;
-  onToggle: () => void;
 }
 
-export function AppSidebar({ logoUrl, shopName = 'Jever Jwellers', collapsed, onToggle }: AppSidebarProps) {
-  const { user, clearAuth } = useAuthStore();
-
-  async function handleLogout() {
-    try {
-      await api.post('/auth/logout');
-    } finally {
-      clearAuth();
-    }
-  }
-
+export function AppSidebar({ logoUrl, shopName = 'Jever Jwellers', collapsed }: AppSidebarProps) {
   return (
     <aside
       className={cn(
@@ -113,12 +94,17 @@ export function AppSidebar({ logoUrl, shopName = 'Jever Jwellers', collapsed, on
         collapsed ? 'w-16' : 'w-[220px]',
       )}
     >
-      {/* Logo + Shop Name + Toggle */}
-      <div className={cn('flex items-center gap-3 px-3 py-4 border-b border-[hsl(var(--sidebar-border))]', collapsed && 'justify-center')}>
+      {/* Logo + Shop Name — collapsed mode = row-wise compact (icon only) */}
+      <div
+        className={cn(
+          'flex items-center gap-3 px-3 py-4 border-b border-[hsl(var(--sidebar-border))] h-14',
+          collapsed && 'justify-center px-0',
+        )}
+      >
         {logoUrl ? (
-          <img src={logoUrl} alt="Logo" className="h-9 w-9 rounded-full object-cover shrink-0" />
+          <img src={logoUrl} alt="Logo" className="h-8 w-8 rounded-full object-cover shrink-0" />
         ) : (
-          <div className="flex h-9 w-9 items-center justify-center rounded-full gold-gradient text-white text-base font-heading font-bold shrink-0">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full gold-gradient text-white text-sm font-heading font-bold shrink-0">
             J
           </div>
         )}
@@ -132,16 +118,6 @@ export function AppSidebar({ logoUrl, shopName = 'Jever Jwellers', collapsed, on
             </p>
           </div>
         )}
-        <button
-          onClick={onToggle}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className={cn(
-            'rounded-md p-1 text-[hsl(var(--sidebar-foreground)/0.5)] hover:text-white hover:bg-[hsl(var(--sidebar-accent))] transition-colors shrink-0',
-            collapsed && 'mt-0',
-          )}
-        >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </button>
       </div>
 
       {/* Navigation */}
@@ -154,44 +130,8 @@ export function AppSidebar({ logoUrl, shopName = 'Jever Jwellers', collapsed, on
 
         <SidebarSection label="Catalog" items={CATALOG_NAV} collapsed={collapsed} />
         <SidebarSection label="Operations" items={OPS_NAV} collapsed={collapsed} />
-
-        <div className="space-y-0.5">
-          {!collapsed && (
-            <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-[hsl(var(--sidebar-foreground)/0.4)]">
-              Other
-            </p>
-          )}
-          {collapsed && <div className="my-1 border-t border-[hsl(var(--sidebar-border))] opacity-30" />}
-          {OTHER_NAV.map((item) => (
-            <SidebarLink key={item.to} item={item} collapsed={collapsed} />
-          ))}
-        </div>
+        <SidebarSection label="Other" items={OTHER_NAV} collapsed={collapsed} />
       </nav>
-
-      {/* User footer */}
-      <div className="border-t border-[hsl(var(--sidebar-border))] p-2">
-        <div className={cn('flex items-center gap-2 rounded-md px-2 py-1.5', collapsed && 'justify-center')}>
-          <div
-            title={collapsed ? `${user?.name} · ${user?.email}` : undefined}
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-gold-500/20 text-gold-400 text-xs font-semibold shrink-0"
-          >
-            {user?.name?.[0]?.toUpperCase() ?? 'A'}
-          </div>
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-[hsl(var(--sidebar-foreground))] truncate">{user?.name}</p>
-              <p className="text-[10px] text-[hsl(var(--sidebar-foreground)/0.5)] truncate">{user?.email}</p>
-            </div>
-          )}
-          <button
-            onClick={handleLogout}
-            title="Logout"
-            className="text-[hsl(var(--sidebar-foreground)/0.5)] hover:text-red-400 transition-colors"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
     </aside>
   );
 }

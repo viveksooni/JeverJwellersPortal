@@ -4,7 +4,6 @@ import { ProtectedRoute } from '@/components/layout/ProtectedRoute';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { ProductsPage } from '@/pages/products/ProductsPage';
-import { InventoryPage } from '@/pages/inventory/InventoryPage';
 import { CustomersPage } from '@/pages/customers/CustomersPage';
 import { TransactionsPage } from '@/pages/transactions/TransactionsPage';
 import { NewTransactionPage } from '@/pages/transactions/NewTransactionPage';
@@ -33,7 +32,7 @@ export const router = createBrowserRouter([
           { path: 'dashboard', element: <DashboardPage /> },
           { path: 'products', element: <ProductsPage /> },
           { path: 'products/:id', element: <ProductDetailPage /> },
-          { path: 'inventory', element: <InventoryPage /> },
+          { path: 'inventory', element: <Navigate to="/products" replace /> },
           { path: 'customers', element: <CustomersPage /> },
           { path: 'customers/:id', element: <CustomerDetailPage /> },
           { path: 'stock', element: <StockConsolidatedPage /> },

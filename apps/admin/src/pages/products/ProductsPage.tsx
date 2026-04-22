@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Search, Image, Trash2, Loader2, Gem, Wand2, Tag, Archive } from 'lucide-react';
+import { Plus, Search, Image, Trash2, Loader2, Gem, Wand2, Tag, Scale, MapPin, Layers } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,56 +12,57 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { PageHeader } from '@/components/layout/PageHeader';
 import api from '@/lib/api';
-import { GOLD_PURITIES, SILVER_PURITIES, PLATINUM_PURITIES } from '@jever/shared';
 import { formatWeight, cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 
-// Colored badge styles per metal type
+// Colored badge styles per metal type — only Gold & Silver supported now
 const METAL_TAG: Record<string, { bg: string; label: string }> = {
-  'gold':       { bg: 'bg-amber-400 text-amber-950',   label: 'Gold' },
-  'silver':     { bg: 'bg-slate-300 text-slate-900',   label: 'Silver' },
-  'platinum':   { bg: 'bg-indigo-300 text-indigo-950', label: 'Platinum' },
-  'diamond':    { bg: 'bg-cyan-300 text-cyan-950',     label: 'Diamond' },
-  'rose gold':  { bg: 'bg-rose-300 text-rose-950',     label: 'Rose Gold' },
-  'white gold': { bg: 'bg-blue-200 text-blue-900',     label: 'White Gold' },
-  'other':      { bg: 'bg-purple-200 text-purple-900', label: 'Other' },
+  'gold':   { bg: 'bg-amber-400 text-amber-950', label: 'Gold' },
+  'silver': { bg: 'bg-slate-300 text-slate-900', label: 'Silver' },
 };
 
 function getMetalTag(metalName: string): { bg: string; label: string } {
-  const key = metalName.toLowerCase();
-  return METAL_TAG[key] ?? { bg: 'bg-purple-200 text-purple-900', label: metalName };
+  const key = (metalName ?? '').toLowerCase();
+  return METAL_TAG[key] ?? { bg: 'bg-slate-200 text-slate-900', label: metalName || '—' };
+}
+
+// Metal + Purity options — kept in sync with server DEFAULT_RATE_KEYS
+const METAL_OPTIONS = [
+  { value: 'gold',   label: 'Gold' },
+  { value: 'silver', label: 'Silver' },
+] as const;
+
+const GOLD_PURITIES   = ['24K', '22K', '18K'];
+const SILVER_PURITIES = ['925', 'Silver']; // "Silver" = normal/unmarked silver
+
+function getPurities(metalType: string): string[] {
+  const m = (metalType ?? '').toLowerCase();
+  if (m === 'gold')   return GOLD_PURITIES;
+  if (m === 'silver') return SILVER_PURITIES;
+  return [];
 }
 
 const productSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1, 'Product name is required'),
+  categoryId: z.coerce.number({ invalid_type_error: 'Category is required' }).int().positive('Category is required'),
+  metalType: z.string().min(1, 'Metal type is required'),
+  purity: z.string().min(1, 'Purity is required'),
   sku: z.string().optional(),
-  categoryId: z.coerce.number().optional(),
-  metalType: z.string().optional(),
-  purity: z.string().optional(),
   grossWeightG: z.string().optional(),
   netWeightG: z.string().optional(),
-  stoneType: z.string().optional(),
-  stoneWeightCt: z.string().optional(),
   makingCharge: z.string().optional(),
   makingType: z.enum(['flat', 'per_gram', 'percentage']).default('flat'),
   trackingType: z.enum(['template', 'per_piece']).default('template'),
   description: z.string().optional(),
+  location: z.string().optional(),
+  quantity: z.coerce.number().int().min(0).optional(),
+  minStockAlert: z.coerce.number().int().min(0).optional(),
 });
 type ProductForm = z.infer<typeof productSchema>;
 
-function getPurities(metalType: string) {
-  const m = metalType.toLowerCase();
-  if (m === 'gold' || m === 'rose gold' || m === 'white gold') return GOLD_PURITIES;
-  if (m === 'silver') return SILVER_PURITIES;
-  if (m === 'platinum') return PLATINUM_PURITIES;
-  return [];
-}
+const LOCATION_OPTIONS = ['Showcase A', 'Showcase B', 'Showcase C', 'Safe', 'Display Window', 'Storage'];
 
 // ─── Image Upload Section ─────────────────────────────────────────────────────
 
@@ -169,16 +170,16 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
     queryFn: () => api.get('/categories').then((r) => r.data.data),
   });
 
-  const { data: metalTypes = [] } = useQuery({
-    queryKey: ['metal-types'],
-    queryFn: () => api.get('/settings/metal-types').then((r) => r.data.data),
-  });
-
   const [skuGenerating, setSkuGenerating] = useState(false);
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<ProductForm>({
     resolver: zodResolver(productSchema),
-    defaultValues: { makingType: 'flat', trackingType: 'template' },
+    defaultValues: {
+      makingType: 'flat',
+      trackingType: 'template',
+      metalType: 'gold',
+      purity: '22K',
+    },
   });
 
   // Re-populate form when product changes (edit mode)
@@ -188,25 +189,29 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
         name: product.name ?? '',
         sku: product.sku ?? '',
         categoryId: product.categoryId ?? undefined,
-        metalType: product.metalType ?? '',
+        metalType: product.metalType ?? 'gold',
         purity: product.purity ?? '',
         grossWeightG: product.grossWeightG ?? '',
         netWeightG: product.netWeightG ?? '',
-        stoneType: product.stoneType ?? '',
-        stoneWeightCt: product.stoneWeightCt ?? '',
         makingCharge: product.makingCharge ?? '',
         makingType: product.makingType ?? 'flat',
         trackingType: product.trackingType ?? 'template',
         description: product.description ?? '',
+        location: product.inventory?.location ?? '',
+        quantity: product.inventory?.quantity ?? 0,
+        minStockAlert: product.inventory?.minStockAlert ?? 1,
       });
-      // Split images: first image is product photo, last one tagged 'storage' or separate by isPrimary
-      const imgs = product.images ?? [];
-      // Storage images are stored as last image with no isPrimary flag (convention)
-      // For now, treat all existing as product images; storage section starts empty on edit
-      setExistingProductImages(imgs);
+      setExistingProductImages(product.images ?? []);
       setExistingStorageImages([]);
     } else {
-      reset({ makingType: 'flat', trackingType: 'template' });
+      reset({
+        makingType: 'flat',
+        trackingType: 'template',
+        metalType: 'gold',
+        purity: '22K',
+        quantity: 0,
+        minStockAlert: 1,
+      });
       setExistingProductImages([]);
       setExistingStorageImages([]);
     }
@@ -221,11 +226,12 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
   const trackingType = watch('trackingType');
 
   const skuPrefix = useCallback(() => {
-    const metal = metalTypes.find((m: any) => m.name === metalType);
+    const metalPrefixMap: Record<string, string> = { gold: 'G', silver: 'S' };
+    const metalP = metalPrefixMap[metalType.toLowerCase()];
     const cat = categories.find((c: any) => c.id === selectedCategoryId);
-    if (!metal?.prefix || !cat?.skuPrefix) return null;
-    return `${metal.prefix}${cat.skuPrefix}`;
-  }, [metalType, selectedCategoryId, metalTypes, categories]);
+    if (!metalP || !cat?.skuPrefix) return null;
+    return `${metalP}${cat.skuPrefix}`;
+  }, [metalType, selectedCategoryId, categories]);
 
   async function generateSku() {
     const prefix = skuPrefix();
@@ -307,27 +313,32 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
     setStorageFiles((f) => f.filter((_, j) => j !== i));
   }
 
-  const isPerPiece = trackingType === 'per_piece';
-
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{product ? 'Edit Product' : 'Add Product'}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-4">
+        <form onSubmit={handleSubmit((d) => mutation.mutate(d), (errs) => {
+          const first = Object.values(errs)[0] as any;
+          toast({ variant: 'destructive', title: first?.message || 'Please fill all required fields' });
+        })} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
+            {/* Product Name */}
             <div className="space-y-1.5 col-span-2">
-              <Label>Product Name *</Label>
-              <Input {...register('name')} placeholder="e.g. 22K Gold Necklace" />
+              <Label>Product Name <span className="text-destructive">*</span></Label>
+              <Input {...register('name')} placeholder="e.g. Chain, Ring, Bangle" />
+              <p className="text-[11px] text-muted-foreground">Don't include metal or purity in the name — those are fields below.</p>
               {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
             </div>
+
+            {/* Category */}
             <div className="space-y-1.5">
-              <Label>Category</Label>
+              <Label>Category <span className="text-destructive">*</span></Label>
               <Select
                 value={watch('categoryId') ? String(watch('categoryId')) : ''}
                 onValueChange={(v) => {
-                  setValue('categoryId', Number(v));
+                  setValue('categoryId', Number(v), { shouldValidate: true });
                   const cat = categories.find((c: any) => c.id === Number(v));
                   if (cat?.trackingType) setValue('trackingType', cat.trackingType as any);
                 }}
@@ -341,27 +352,50 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
                   ))}
                 </SelectContent>
               </Select>
+              {errors.categoryId && <p className="text-xs text-destructive">{errors.categoryId.message}</p>}
             </div>
+
+            {/* Metal Type */}
             <div className="space-y-1.5">
-              <Label>Metal Type</Label>
+              <Label>Metal <span className="text-destructive">*</span></Label>
               <Select
                 value={metalType}
-                onValueChange={(v) => { setValue('metalType', v); setValue('purity', ''); }}
+                onValueChange={(v) => {
+                  setValue('metalType', v, { shouldValidate: true });
+                  // reset purity to the first valid option for the new metal
+                  const defaultPurity = v === 'gold' ? '22K' : v === 'silver' ? '925' : '';
+                  setValue('purity', defaultPurity, { shouldValidate: true });
+                }}
               >
                 <SelectTrigger><SelectValue placeholder="Select metal" /></SelectTrigger>
                 <SelectContent>
-                  {metalTypes.map((m: any) => (
-                    <SelectItem key={m.name} value={m.name}>
-                      {m.label} <span className="text-muted-foreground text-[10px] ml-1">({m.prefix})</span>
-                    </SelectItem>
+                  {METAL_OPTIONS.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {errors.metalType && <p className="text-xs text-destructive">{errors.metalType.message}</p>}
             </div>
-            <div className="space-y-1.5 col-span-2">
+
+            {/* Purity */}
+            <div className="space-y-1.5">
+              <Label>Purity <span className="text-destructive">*</span></Label>
+              <Select value={watch('purity') ?? ''} onValueChange={(v) => setValue('purity', v, { shouldValidate: true })}>
+                <SelectTrigger><SelectValue placeholder="Select purity" /></SelectTrigger>
+                <SelectContent>
+                  {getPurities(metalType).map((p) => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.purity && <p className="text-xs text-destructive">{errors.purity.message}</p>}
+            </div>
+
+            {/* SKU */}
+            <div className="space-y-1.5">
               <Label>SKU</Label>
               <div className="flex gap-2 items-center">
-                <Input {...register('sku')} placeholder="e.g. GR-001" className="flex-1 font-mono" />
+                <Input {...register('sku')} placeholder="Auto-generated" className="flex-1 font-mono" />
                 <Button
                   type="button"
                   variant="outline"
@@ -372,51 +406,25 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
                   className="shrink-0 gap-1.5"
                 >
                   {skuGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                  {skuPrefix() ? `Generate ${skuPrefix()}` : 'Auto SKU'}
+                  {skuPrefix() ? `Gen ${skuPrefix()}` : 'Auto'}
                 </Button>
               </div>
-              {skuPrefix() && (
-                <p className="text-[11px] text-muted-foreground">
-                  Prefix <span className="font-mono font-semibold text-gold-700">{skuPrefix()}</span> = {
-                    metalTypes.find((m: any) => m.name === metalType)?.label
-                  } + {categories.find((c: any) => c.id === selectedCategoryId)?.name}
-                </p>
-              )}
             </div>
-            <div className="space-y-1.5">
-              <Label>Purity</Label>
-              {getPurities(metalType).length > 0 ? (
-                <Select value={watch('purity') ?? ''} onValueChange={(v) => setValue('purity', v)}>
-                  <SelectTrigger><SelectValue placeholder="Select purity" /></SelectTrigger>
-                  <SelectContent>
-                    {getPurities(metalType).map((p) => (
-                      <SelectItem key={p} value={p}>{p}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input {...register('purity')} placeholder="e.g. 22K, 925" />
-              )}
-            </div>
+
+            {/* Weights */}
             <div className="space-y-1.5">
               <Label>Gross Weight (g)</Label>
-              <Input {...register('grossWeightG')} placeholder="12.500" />
+              <Input {...register('grossWeightG')} placeholder="12.500" inputMode="decimal" />
             </div>
             <div className="space-y-1.5">
               <Label>Net Weight (g)</Label>
-              <Input {...register('netWeightG')} placeholder="11.200" />
+              <Input {...register('netWeightG')} placeholder="11.200" inputMode="decimal" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Stone Type</Label>
-              <Input {...register('stoneType')} placeholder="diamond, ruby…" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Stone Weight (ct)</Label>
-              <Input {...register('stoneWeightCt')} placeholder="0.25" />
-            </div>
+
+            {/* Making charge */}
             <div className="space-y-1.5">
               <Label>Making Charge</Label>
-              <Input {...register('makingCharge')} placeholder="500" />
+              <Input {...register('makingCharge')} placeholder="500" inputMode="decimal" />
             </div>
             <div className="space-y-1.5">
               <Label>Making Charge Type</Label>
@@ -429,24 +437,32 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5 col-span-2">
-              <Label>Stock Tracking</Label>
-              <Select value={watch('trackingType')} onValueChange={(v) => setValue('trackingType', v as any)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+
+            {/* Stock section — INVENTORY FIELDS */}
+            <div className="col-span-2 pt-2 mt-2 border-t border-border">
+              <p className="text-sm font-semibold text-foreground mb-2">Stock &amp; Location</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Location</Label>
+              <Select value={watch('location') ?? ''} onValueChange={(v) => setValue('location', v)}>
+                <SelectTrigger><SelectValue placeholder="Where is it kept?" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="template">Template — track total quantity only</SelectItem>
-                  <SelectItem value="per_piece">Per Piece — track each physical piece individually</SelectItem>
+                  {LOCATION_OPTIONS.map((loc) => (
+                    <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {(() => {
-                const cat = categories.find((c: any) => c.id === selectedCategoryId);
-                return cat?.trackingType ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    Category default: <span className="font-semibold">{cat.trackingType === 'per_piece' ? 'Per Piece' : 'Template'}</span>
-                  </p>
-                ) : null;
-              })()}
             </div>
+            <div className="space-y-1.5">
+              <Label>Opening Quantity</Label>
+              <Input {...register('quantity')} type="number" min={0} placeholder="0" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Min Stock Alert</Label>
+              <Input {...register('minStockAlert')} type="number" min={0} placeholder="1" />
+            </div>
+
+            {/* Description */}
             <div className="space-y-1.5 col-span-2">
               <Label>Description</Label>
               <Input {...register('description')} placeholder="Brief description…" />
@@ -456,54 +472,26 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
           {/* Image Upload Sections */}
           <div className="space-y-4 pt-2 border-t border-border">
             <p className="text-sm font-semibold text-foreground">Photos</p>
-
-            {isPerPiece ? (
-              <>
-                <ImageUploadSection
-                  label="Per-Piece Photo"
-                  hint="Photo of an individual piece for reference"
-                  existingImages={existingProductImages}
-                  newPreviews={productPreviews}
-                  onAdd={addProductFiles}
-                  onDeleteExisting={deleteExistingImage}
-                  onDeleteNew={removeProductPreview}
-                  maxImages={4}
-                />
-                <ImageUploadSection
-                  label="Storage / Showcase Photo"
-                  hint="Photo showing the full lot or storage tray"
-                  existingImages={existingStorageImages}
-                  newPreviews={storagePreviews}
-                  onAdd={addStorageFiles}
-                  onDeleteExisting={deleteExistingImage}
-                  onDeleteNew={removeStoragePreview}
-                  maxImages={2}
-                />
-              </>
-            ) : (
-              <>
-                <ImageUploadSection
-                  label="Product Photos"
-                  hint="Main product images (up to 6)"
-                  existingImages={existingProductImages}
-                  newPreviews={productPreviews}
-                  onAdd={addProductFiles}
-                  onDeleteExisting={deleteExistingImage}
-                  onDeleteNew={removeProductPreview}
-                  maxImages={6}
-                />
-                <ImageUploadSection
-                  label="Storage / Stock Photo"
-                  hint="Photo of the full stock batch in storage"
-                  existingImages={existingStorageImages}
-                  newPreviews={storagePreviews}
-                  onAdd={addStorageFiles}
-                  onDeleteExisting={deleteExistingImage}
-                  onDeleteNew={removeStoragePreview}
-                  maxImages={2}
-                />
-              </>
-            )}
+            <ImageUploadSection
+              label="Product Photos"
+              hint="Main product images (up to 6)"
+              existingImages={existingProductImages}
+              newPreviews={productPreviews}
+              onAdd={addProductFiles}
+              onDeleteExisting={deleteExistingImage}
+              onDeleteNew={removeProductPreview}
+              maxImages={6}
+            />
+            <ImageUploadSection
+              label="Storage / Stock Photo"
+              hint="Photo of the full stock batch in storage"
+              existingImages={existingStorageImages}
+              newPreviews={storagePreviews}
+              onAdd={addStorageFiles}
+              onDeleteExisting={deleteExistingImage}
+              onDeleteNew={removeStoragePreview}
+              maxImages={2}
+            />
           </div>
 
           <DialogFooter>
@@ -521,199 +509,140 @@ function ProductFormDialog({ open, onClose, product }: { open: boolean; onClose:
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type TrackingTab = 'all' | 'per_piece' | 'template';
-
 export function ProductsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [showForm, setShowForm] = useState(false);
   const [editProduct, setEditProduct] = useState<any>(null);
-  const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState('all');
-  const [metalType, setMetalType] = useState('all');
-  const [purity, setPurity] = useState('all');
-  const [trackingTab, setTrackingTab] = useState<TrackingTab>('all');
-  const qc = useQueryClient();
+  const [trackingType, setTrackingType] = useState('all');
 
-  const [pendingEditId, setPendingEditId] = useState<string | null>(
-    () => (location.state as any)?.editId ?? null
-  );
+  const [pendingEditId, setPendingEditId] = useState<string | null>(() => (location.state as any)?.editId ?? null);
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
     queryFn: () => api.get('/categories').then((r) => r.data.data),
   });
 
-  const { data: metalTypes = [] } = useQuery({
-    queryKey: ['metal-types'],
-    queryFn: () => api.get('/settings/metal-types').then((r) => r.data.data),
-  });
-
   const { data, isLoading } = useQuery({
-    queryKey: ['products', search, categoryId, metalType],
+    queryKey: ['products', search, categoryId],
     queryFn: () => {
       const params = new URLSearchParams({ limit: '200' });
       if (search) params.set('search', search);
       if (categoryId && categoryId !== 'all') params.set('categoryId', categoryId);
-      if (metalType && metalType !== 'all') params.set('metalType', metalType);
       return api.get(`/products?${params}`).then((r) => r.data);
     },
     staleTime: 30_000,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/products/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['products'] });
-      toast({ variant: 'success', title: 'Product archived' });
-      setDeleteTarget(null);
-    },
-    onError: () => toast({ variant: 'destructive', title: 'Delete failed' }),
-  });
-
   const allProducts: any[] = data?.data ?? [];
 
-  // Open edit form when navigated here from ProductDetailPage with editId state
+  // Open edit dialog once when navigated here with editId state (from ProductDetailPage)
   useEffect(() => {
-    if (pendingEditId && allProducts.length > 0) {
-      const p = allProducts.find((x) => x.id === pendingEditId);
-      if (p) {
-        setEditProduct(p);
-        setShowForm(true);
-        setPendingEditId(null);
-        navigate(location.pathname, { replace: true, state: {} });
-      }
+    if (!pendingEditId || allProducts.length === 0) return;
+    const p = allProducts.find((x: any) => x.id === pendingEditId);
+    if (p) {
+      setPendingEditId(null); // clear immediately so search changes don't re-trigger
+      navigate(location.pathname, { replace: true, state: {} });
+      setEditProduct(p);
+      setShowForm(true);
     }
   }, [pendingEditId, allProducts.length]);
 
-  // Client-side filters
-  const products = allProducts.filter((p) => {
-    const matchTracking = trackingTab === 'all' || p.trackingType === trackingTab;
-    const matchPurity = purity === 'all' || p.purity === purity;
-    return matchTracking && matchPurity;
-  });
+  // Category summary stats
+  const categoryStats = useMemo(() => {
+    if (categoryId === 'all' || allProducts.length === 0) return null;
+    const selectedCat = categories.find((c: any) => String(c.id) === categoryId);
+    const inStockProducts = allProducts.filter((p: any) => (p.inventory?.quantity ?? 0) > 0);
+    const totalUnits = allProducts.reduce((s: number, p: any) => s + (p.inventory?.quantity ?? 0), 0);
+    const totalWeight = allProducts.reduce((s: number, p: any) => {
+      const w = p.inventory?.totalWeightG ?? 0;
+      return s + parseFloat(w || '0');
+    }, 0);
+    const locations = [...new Set(allProducts.map((p: any) => p.inventory?.location).filter(Boolean))];
+    return { name: selectedCat?.name, inStockProducts: inStockProducts.length, total: allProducts.length, totalUnits, totalWeight, locations };
+  }, [allProducts, categoryId, categories]);
 
-  // Collect unique purities from loaded products for filter dropdown
-  const purities = Array.from(new Set(allProducts.map((p: any) => p.purity).filter(Boolean))) as string[];
-
-  // Counts for tabs
-  const perPieceCount = allProducts.filter((p) => p.trackingType === 'per_piece').length;
-  const templateCount = allProducts.filter((p) => p.trackingType === 'template').length;
-
-  const TRACKING_TABS: { key: TrackingTab; label: string; count: number }[] = [
-    { key: 'all', label: 'All Products', count: allProducts.length },
-    { key: 'per_piece', label: 'Per Piece', count: perPieceCount },
-    { key: 'template', label: 'Template / Bulk', count: templateCount },
-  ];
+  const products = trackingType === 'all'
+    ? allProducts
+    : allProducts.filter((p: any) => p.trackingType === trackingType);
 
   return (
     <div className="flex flex-col h-full">
       <PageHeader
-        title="Products"
-        description={`${data?.total ?? 0} products`}
+        title="Inventory"
+        description={`${data?.total ?? 0} items`}
         action={
-          <Button variant="gold" size="sm" onClick={() => { setEditProduct(null); setShowForm(true); }}>
-            <Plus className="h-4 w-4" /> Add Product
+          <Button variant="gold" size="sm" onClick={() => setShowForm(true)}>
+            <Plus className="h-4 w-4" /> Add Item
           </Button>
         }
       />
 
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        {/* Tracking type tabs */}
-        <div className="flex gap-1 border-b border-border pb-0">
-          {TRACKING_TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTrackingTab(t.key)}
-              className={cn(
-                'px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5',
-                trackingTab === t.key
-                  ? 'border-gold-500 text-gold-700'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {t.key === 'per_piece' && <Tag className="h-3.5 w-3.5" />}
-              {t.key === 'template' && <Archive className="h-3.5 w-3.5" />}
-              {t.label}
-              <span className={cn(
-                'text-[10px] rounded-full px-1.5 py-0.5 font-semibold',
-                trackingTab === t.key ? 'bg-gold-100 text-gold-700' : 'bg-secondary text-muted-foreground'
-              )}>
-                {t.count}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {/* Category pill tabs */}
-        <div className="flex flex-wrap gap-2 items-center">
-          <button
-            onClick={() => setCategoryId('all')}
-            className={cn(
-              'px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors',
-              categoryId === 'all'
-                ? 'bg-gold-500 text-white border-gold-500'
-                : 'border-border bg-background hover:bg-accent'
-            )}
-          >
-            All
-          </button>
-          {categories.map((c: any) => (
-            <button
-              key={c.id}
-              onClick={() => setCategoryId(String(c.id))}
-              className={cn(
-                'px-3.5 py-1.5 rounded-full text-sm font-medium border transition-colors',
-                categoryId === String(c.id)
-                  ? 'bg-gold-500 text-white border-gold-500'
-                  : 'border-border bg-background hover:bg-accent'
-              )}
-            >
-              {c.name}
-            </button>
-          ))}
-        </div>
-
-        {/* Search + metal + purity filters */}
+        {/* Filters row */}
         <div className="flex flex-wrap gap-3 items-center">
+          <Select value={categoryId} onValueChange={setCategoryId}>
+            <SelectTrigger className="w-48">
+              <SelectValue placeholder="All Categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories.map((c: any) => (
+                <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={trackingType} onValueChange={setTrackingType}>
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="All Types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="template">Bulk / Template</SelectItem>
+              <SelectItem value="per_piece">Per Piece</SelectItem>
+            </SelectContent>
+          </Select>
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search products…" className="pl-9 w-52" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input placeholder="Search by name or SKU…" className="pl-9 w-64" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <Select value={metalType} onValueChange={setMetalType}>
-            <SelectTrigger className="w-36"><SelectValue placeholder="Metal type" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Metals</SelectItem>
-              {metalTypes.map((m: any) => (
-                <SelectItem key={m.name} value={m.name}>{m.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={purity} onValueChange={setPurity}>
-            <SelectTrigger className="w-28"><SelectValue placeholder="Purity" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Purities</SelectItem>
-              {purities.map((p) => (
-                <SelectItem key={p} value={p}>{p}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
-        {/* Per-Piece section header */}
-        {trackingTab === 'per_piece' && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 flex items-center gap-2 text-amber-800 text-sm">
-            <Tag className="h-4 w-4" />
-            <span>Per-piece products — each physical item is tracked individually. Manage pieces via Inventory page.</span>
-          </div>
-        )}
-
-        {/* Template section header */}
-        {trackingTab === 'template' && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 flex items-center gap-2 text-slate-700 text-sm">
-            <Archive className="h-4 w-4" />
-            <span>Template / bulk products — total quantity and weight tracked. Adjust stock via Inventory page.</span>
+        {/* Category stats */}
+        {categoryStats && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-secondary/50 border">
+            <div className="text-center">
+              <p className="text-2xl font-heading font-bold text-gold-600">{categoryStats.total}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Product Types</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-heading font-bold text-emerald-600">{categoryStats.inStockProducts}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">In Stock</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-heading font-bold">{categoryStats.totalUnits}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Total Units</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-heading font-bold flex items-center justify-center gap-1">
+                <Scale className="h-5 w-5 text-muted-foreground" />
+                {categoryStats.totalWeight > 0 ? `${categoryStats.totalWeight.toFixed(1)}g` : '—'}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Total Weight</p>
+            </div>
+            {categoryStats.locations.length > 0 && (
+              <div className="col-span-2 sm:col-span-4 flex items-center gap-1.5 pt-2 border-t border-border text-xs text-muted-foreground">
+                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                <span>Locations: </span>
+                {categoryStats.locations.map((loc: string) => (
+                  <span key={loc} className="px-2 py-0.5 rounded-full bg-background border text-foreground font-medium">{loc}</span>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -722,6 +651,8 @@ export function ProductsPage() {
           {products.map((p: any) => {
             const primaryImg = p.images?.find((i: any) => i.isPrimary) ?? p.images?.[0];
             const isPerPiece = p.trackingType === 'per_piece';
+            const stock = p.inventory?.quantity ?? 0;
+            const stockColor = stock === 0 ? 'text-red-500' : stock <= (p.inventory?.minStockAlert ?? 1) ? 'text-amber-500' : 'text-emerald-600';
             return (
               <Card
                 key={p.id}
@@ -747,67 +678,46 @@ export function ProductsPage() {
                       </span>
                     );
                   })()}
-                  {p.images?.length > 1 && (
-                    <Badge variant="secondary" className="absolute top-1 right-1 text-[10px] py-0">
-                      +{p.images.length - 1}
-                    </Badge>
-                  )}
+                  {/* Per-piece vs Bulk badge */}
+                  <span className={cn(
+                    'absolute bottom-1.5 right-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full',
+                    isPerPiece
+                      ? 'bg-amber-700/80 text-amber-50'
+                      : 'bg-slate-700/70 text-slate-100'
+                  )}>
+                    {isPerPiece ? 'Per Piece' : 'Bulk'}
+                  </span>
                 </div>
-                <CardContent className="p-3 space-y-2">
+                <CardContent className="p-3 space-y-1.5">
                   <div>
                     <p className="text-sm font-medium leading-tight line-clamp-2">{p.name}</p>
                     {p.sku && <p className="text-[10px] font-mono text-gold-600 mt-0.5">{p.sku}</p>}
-                    <div className="flex gap-1 flex-wrap mt-1">
-                      {p.category && <Badge variant="outline" className="text-[10px] py-0">{p.category.name}</Badge>}
-                      {p.purity && <Badge variant="secondary" className="text-[10px] py-0 font-mono">{p.purity}</Badge>}
-                    </div>
+                    {p.category && (
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{p.category.name}</p>
+                    )}
                   </div>
 
                   {isPerPiece ? (
-                    <div className="text-xs text-muted-foreground space-y-0.5">
-                      {p.grossWeightG && <span className="block">{formatWeight(p.grossWeightG)} (typical)</span>}
-                      <div className="flex items-center gap-1 text-amber-700">
-                        <Tag className="h-3 w-3" />
-                        <span className="text-[10px] font-semibold">{p.inventory?.quantity ?? 0} pcs in stock</span>
-                      </div>
+                    <div className="flex items-center gap-1.5">
+                      <Tag className="h-3 w-3 text-amber-700 shrink-0" />
+                      <span className={cn('text-xs font-semibold', stockColor)}>
+                        {stock === 0 ? 'Out of stock' : `${stock} pcs`}
+                      </span>
+                      {p.grossWeightG && (
+                        <span className="text-[10px] text-muted-foreground">· {formatWeight(p.grossWeightG)} ea</span>
+                      )}
                     </div>
                   ) : (
-                    <div className="text-xs text-muted-foreground space-y-0.5">
-                      {p.grossWeightG && <span className="block">Unit: {formatWeight(p.grossWeightG)}</span>}
-                      <div className="flex gap-2">
-                        <Badge
-                          variant={p.inventory?.quantity > p.inventory?.minStockAlert ? 'success' : 'warning'}
-                          className="text-[10px] py-0"
-                        >
-                          Qty: {p.inventory?.quantity ?? 0}
-                        </Badge>
-                        {p.inventory?.totalWeightG && (
-                          <span className="text-[10px] text-muted-foreground self-center">
-                            {formatWeight(p.inventory.totalWeightG)} total
-                          </span>
-                        )}
-                      </div>
+                    <div className="flex items-center gap-1.5">
+                      <Layers className="h-3 w-3 text-slate-500 shrink-0" />
+                      <span className={cn('text-xs font-semibold', stockColor)}>
+                        {stock === 0 ? 'Out of stock' : `Qty: ${stock}`}
+                      </span>
+                      {p.inventory?.totalWeightG && (
+                        <span className="text-[10px] text-muted-foreground">· {formatWeight(p.inventory.totalWeightG)}</span>
+                      )}
                     </div>
                   )}
-
-                  <div className="flex gap-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1 h-7 text-xs"
-                      onClick={() => { setEditProduct(p); setShowForm(true); }}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                      onClick={() => setDeleteTarget(p)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
                 </CardContent>
               </Card>
             );
@@ -816,11 +726,7 @@ export function ProductsPage() {
             <div className="col-span-full text-center py-16 text-muted-foreground">
               <Gem className="h-12 w-12 mx-auto mb-3 opacity-20" />
               <p className="text-lg font-heading">No products found</p>
-              <p className="text-sm mt-1">
-                {trackingTab !== 'all'
-                  ? `No ${trackingTab === 'per_piece' ? 'per-piece' : 'template'} products yet`
-                  : 'Add your first jewelry product'}
-              </p>
+              <p className="text-sm mt-1">Add your first jewelry product to get started.</p>
             </div>
           )}
         </div>
@@ -831,27 +737,6 @@ export function ProductsPage() {
         onClose={() => { setShowForm(false); setEditProduct(null); }}
         product={editProduct}
       />
-
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Archive this product?</AlertDialogTitle>
-            <AlertDialogDescription>
-              <strong>{deleteTarget?.name}</strong> will be archived and removed from the catalog.
-              Existing transaction records will not be affected.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-            >
-              {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Archive'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

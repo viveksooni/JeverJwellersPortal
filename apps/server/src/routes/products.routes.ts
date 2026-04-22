@@ -14,25 +14,36 @@ import { env } from '../config/env.js';
 const router = Router();
 router.use(authenticate);
 
-const productSchema = z.object({
-  categoryId: z.coerce.number().optional(),
-  name: z.string().min(1).max(200),
-  sku: z.string().max(100).optional(),
-  description: z.string().optional(),
-  metalType: z.string().optional(),
-  purity: z.string().optional(),
-  grossWeightG: z.string().optional(),
-  netWeightG: z.string().optional(),
-  stoneType: z.string().optional(),
-  stoneWeightCt: z.string().optional(),
-  makingCharge: z.string().optional(),
-  makingType: z.enum(['flat', 'per_gram', 'percentage']).default('flat'),
-  attributes: z.record(z.unknown()).default({}),
-});
-
 // Convert empty string → null for any field (prevents NUMERIC cast errors in PG)
 const emptyToNull = (v: unknown) => (v === '' ? null : v);
 const emptyToUndefined = (v: unknown) => (v === '' || v === null || v === undefined ? undefined : v);
+
+const productSchema = z.object({
+  categoryId: z.preprocess(emptyToUndefined, z.coerce.number().optional()),
+  name: z.string().min(1).max(200),
+  sku:           z.preprocess(emptyToUndefined, z.string().max(100).optional()),
+  description:   z.preprocess(emptyToNull, z.string().nullable().optional()),
+  metalType:     z.preprocess(emptyToNull, z.string().nullable().optional()),
+  purity:        z.preprocess(emptyToNull, z.string().nullable().optional()),
+  grossWeightG:  z.preprocess(emptyToNull, z.string().nullable().optional()),
+  netWeightG:    z.preprocess(emptyToNull, z.string().nullable().optional()),
+  stoneType:     z.preprocess(emptyToNull, z.string().nullable().optional()),
+  stoneWeightCt: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  makingCharge:  z.preprocess(emptyToNull, z.string().nullable().optional()),
+  makingType: z.preprocess(
+    emptyToUndefined,
+    z.enum(['flat', 'per_gram', 'percentage']).default('flat')
+  ),
+  trackingType: z.preprocess(
+    emptyToUndefined,
+    z.enum(['template', 'per_piece']).default('template')
+  ),
+  attributes: z.record(z.unknown()).default({}),
+  // Inventory-side fields (stored on inventory row, not products)
+  location:      z.preprocess(emptyToNull, z.string().nullable().optional()),
+  quantity:      z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).optional()),
+  minStockAlert: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).optional()),
+});
 
 // Looser schema for PUT — handles empty strings, nulls, missing attributes
 const productUpdateSchema = z.object({
@@ -54,7 +65,15 @@ const productUpdateSchema = z.object({
     emptyToUndefined,
     z.enum(['flat', 'per_gram', 'percentage']).optional()
   ),
+  trackingType: z.preprocess(
+    emptyToUndefined,
+    z.enum(['template', 'per_piece']).optional()
+  ),
   attributes: z.record(z.unknown()).optional(),
+  // Inventory-side fields (applied to the linked inventory row)
+  location:      z.preprocess(emptyToNull, z.string().nullable().optional()),
+  quantity:      z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).optional()),
+  minStockAlert: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).optional()),
 });
 
 // List products
@@ -115,11 +134,17 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 // Create product
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const data = productSchema.parse(req.body);
-    const [product] = await db.insert(products).values(data).returning();
+    const parsed = productSchema.parse(req.body);
+    // Separate inventory-side fields from product fields
+    const { location, quantity, minStockAlert, ...productData } = parsed;
+    const [product] = await db.insert(products).values(productData).returning();
 
-    // Auto-create inventory row
-    await db.insert(inventory).values({ productId: product.id }).onConflictDoNothing();
+    // Auto-create inventory row with optional location / quantity / minStockAlert
+    const invRow: Record<string, unknown> = { productId: product.id };
+    if (location !== undefined) invRow.location = location;
+    if (quantity !== undefined) invRow.quantity = quantity;
+    if (minStockAlert !== undefined) invRow.minStockAlert = minStockAlert;
+    await db.insert(inventory).values(invRow as any).onConflictDoNothing();
 
     res.status(201).json({ success: true, data: product });
   } catch (err) {
@@ -131,16 +156,36 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const parsed = productUpdateSchema.parse(req.body);
+    // Separate inventory-side fields from product fields
+    const { location, quantity, minStockAlert, ...productFields } = parsed;
+
     // Strip undefined so we only update fields that were actually sent
-    const data = Object.fromEntries(
-      Object.entries(parsed).filter(([, v]) => v !== undefined)
+    const prodData = Object.fromEntries(
+      Object.entries(productFields).filter(([, v]) => v !== undefined)
     );
     const [product] = await db
       .update(products)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...prodData, updatedAt: new Date() })
       .where(eq(products.id, req.params.id))
       .returning();
     if (!product) throw new AppError('Product not found', 404);
+
+    // Apply inventory updates (only fields that were sent)
+    const invPatch: Record<string, unknown> = {};
+    if (location !== undefined) invPatch.location = location;
+    if (quantity !== undefined) invPatch.quantity = quantity;
+    if (minStockAlert !== undefined) invPatch.minStockAlert = minStockAlert;
+    if (Object.keys(invPatch).length > 0) {
+      invPatch.lastUpdated = new Date();
+      await db
+        .insert(inventory)
+        .values({ productId: product.id, ...invPatch } as any)
+        .onConflictDoUpdate({
+          target: inventory.productId,
+          set: invPatch as any,
+        });
+    }
+
     res.json({ success: true, data: product });
   } catch (err) {
     next(err);

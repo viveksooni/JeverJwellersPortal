@@ -29,6 +29,20 @@
       "when": 1776400000000,
       "tag": "0003_per_piece_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1776500000000,
+      "tag": "0004_transaction_item_metal_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1776600000000,
+      "tag": "0005_cleanup_metal_rates",
+      "breakpoints": true
     }
   ]
 }

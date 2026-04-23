@@ -10,11 +10,10 @@ pipeline {
         VPS_USER     = 'vivek_soniLess'
         APP_DIR      = '/home/vivek_soniLess/projects/JeverJwellersPortal'
         COMPOSE_FILE = 'docker-compose.prod.yml'
-        ENV_FILE     = '/home/vivek_soniLess/projects/JeverJwellersPortal/.env.production'
+        ENV_FILE     = '.env.production'
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 echo '── Pulling latest pipeline code ──'
@@ -27,24 +26,25 @@ pipeline {
         stage('Deploy on VPS') {
             steps {
                 sshagent(credentials: ['vps-ssh-key']) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} '
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} "
                             set -e
 
-                            echo "── Pulling latest code ──"
-                            sudo chown -R \$(whoami):\$(whoami) ${APP_DIR} || true
+                            echo '── Moving to project directory ──'
                             cd ${APP_DIR}
+
+                            echo '── Pulling latest code ──'
                             git fetch origin
                             git reset --hard origin/main
                             git clean -fd
 
-                            echo "── Building and starting containers ──"
-                            docker compose -f ${APP_DIR}/${COMPOSE_FILE} --env-file ${ENV_FILE} up -d --build --remove-orphans
+                            echo '── Building and starting containers ──'
+                            docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} up -d --build --remove-orphans
 
-                            echo "── Container status ──"
-                            docker compose -f ${APP_DIR}/${COMPOSE_FILE} ps
-                        '
-                    """
+                            echo '── Container status ──'
+                            docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} ps
+                        "
+                    '''
                 }
             }
         }
@@ -52,13 +52,15 @@ pipeline {
         stage('Run Migrations') {
             steps {
                 sshagent(credentials: ['vps-ssh-key']) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} '
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} "
                             set -e
-                            sleep 8
-                            docker compose -f ${APP_DIR}/${COMPOSE_FILE} exec -T server node dist/db/migrate.js
-                        '
-                    """
+                            cd ${APP_DIR}
+
+                            echo '── Running migrations ──'
+                            docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} run --rm server node dist/db/migrate.js
+                        "
+                    '''
                 }
             }
         }
@@ -66,13 +68,21 @@ pipeline {
         stage('Health Check') {
             steps {
                 sshagent(credentials: ['vps-ssh-key']) {
-                    retry(3) {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} '
-                                sleep 5
-                                curl -sf http://127.0.0.1:3001/health || exit 1
-                            '
-                        """
+                    retry(5) {
+                        sh '''
+                            ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} "
+                                set -e
+                                echo '── Waiting for app to be ready ──'
+                                sleep 8
+
+                                echo '── Checking container status ──'
+                                cd ${APP_DIR}
+                                docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} ps
+
+                                echo '── Running health check ──'
+                                curl -f http://127.0.0.1:3001/health
+                            "
+                        '''
                     }
                 }
             }
@@ -81,16 +91,18 @@ pipeline {
 
     post {
         success {
-            echo '✅ Deployment successful'
+            echo '✅ Deployed successfully!'
         }
+
         failure {
             echo '❌ Deployment failed — printing container logs'
             sshagent(credentials: ['vps-ssh-key']) {
-                sh """
-                    ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} '
-                        docker compose -f ${APP_DIR}/${COMPOSE_FILE} logs --tail=50
-                    ' || true
-                """
+                sh '''
+                    ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} "
+                        cd ${APP_DIR}
+                        docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} logs --tail=100
+                    " || true
+                '''
             }
         }
     }

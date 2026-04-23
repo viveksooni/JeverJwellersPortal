@@ -4,14 +4,14 @@
 
 ## Stack
 
-| Layer | Tech |
-|-------|------|
+| Layer    | Tech                                                    |
+| -------- | ------------------------------------------------------- |
 | Frontend | Vite + React 18 + TypeScript + Tailwind CSS + shadcn/ui |
-| Backend | Express.js + TypeScript |
-| Database | PostgreSQL + Drizzle ORM |
-| PDF | Puppeteer (server-side) |
-| WhatsApp | wa.me deep link |
-| Monorepo | npm workspaces + Turborepo |
+| Backend  | Express.js + TypeScript                                 |
+| Database | PostgreSQL + Drizzle ORM                                |
+| PDF      | Puppeteer (server-side)                                 |
+| WhatsApp | wa.me deep link                                         |
+| Monorepo | npm workspaces + Turborepo                              |
 
 ---
 
@@ -76,11 +76,11 @@ npm run dev
 
 This starts both servers concurrently via Turborepo:
 
-| Service | URL |
-|---------|-----|
+| Service        | URL                   |
+| -------------- | --------------------- |
 | Admin frontend | http://localhost:5173 |
-| API server | http://localhost:3001 |
-| pgAdmin | http://localhost:5050 |
+| API server     | http://localhost:3001 |
+| pgAdmin        | http://localhost:5050 |
 
 ---
 
@@ -206,11 +206,11 @@ jever-jwellers/
 
 ## Key URLs (Production)
 
-| URL | Purpose |
-|-----|---------|
-| `https://admin.yourdomain.com` | Admin panel login |
-| `https://api.yourdomain.com/health` | API health check |
-| `https://api.yourdomain.com/uploads/invoices/INV-*.pdf` | Generated PDFs |
+| URL                                                     | Purpose           |
+| ------------------------------------------------------- | ----------------- |
+| `https://admin.yourdomain.com`                          | Admin panel login |
+| `https://api.yourdomain.com/health`                     | API health check  |
+| `https://api.yourdomain.com/uploads/invoices/INV-*.pdf` | Generated PDFs    |
 
 ---
 
@@ -235,3 +235,4 @@ Password: admin123
 ```
 
 > Change this immediately in Settings after first login.
+> vivek soni

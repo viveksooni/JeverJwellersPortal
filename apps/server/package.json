@@ -25,6 +25,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.2",
+    "drizzle-orm": "^0.45.2",
     "pg": "^8.13.3",
     "puppeteer": "^23.11.1",
     "sharp": "^0.33.5",
@@ -40,7 +41,6 @@
     "@types/node": "^22.13.13",
     "@types/pg": "^8.11.11",
     "drizzle-kit": "^0.31.10",
-    "drizzle-orm": "^0.45.2",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }

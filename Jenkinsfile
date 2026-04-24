@@ -27,23 +27,23 @@ pipeline {
             steps {
                 sshagent(credentials: ['vps-ssh-key']) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} "
-                            set -e
+                        ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} <<REMOTE
+set -e
 
-                            echo '── Moving to project directory ──'
-                            cd ${APP_DIR}
+echo "── Moving to project directory ──"
+cd ${APP_DIR}
 
-                            echo '── Pulling latest code ──'
-                            git fetch origin
-                            git reset --hard origin/main
-                            git clean -fd
+echo "── Pulling latest code ──"
+git fetch origin
+git reset --hard origin/main
+git clean -fd
 
-                            echo '── Building and starting containers ──'
-                            docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} up -d --build --remove-orphans
+echo "── Building and starting containers ──"
+docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} up -d --build --remove-orphans
 
-                            echo '── Container status ──'
-                            docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} ps
-                        "
+echo "── Container status ──"
+docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} ps
+REMOTE
                     '''
                 }
             }
@@ -53,13 +53,13 @@ pipeline {
             steps {
                 sshagent(credentials: ['vps-ssh-key']) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} "
-                            set -e
-                            cd ${APP_DIR}
+                        ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} <<REMOTE
+set -e
+cd ${APP_DIR}
 
-                            echo '── Running migrations ──'
-                            docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} run --rm server node dist/db/migrate.js
-                        "
+echo "── Running migrations ──"
+docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} run --rm server node dist/db/migrate.js
+REMOTE
                     '''
                 }
             }
@@ -70,18 +70,18 @@ pipeline {
                 sshagent(credentials: ['vps-ssh-key']) {
                     retry(5) {
                         sh '''
-                            ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} "
-                                set -e
-                                echo '── Waiting for app to be ready ──'
-                                sleep 8
+                            ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} <<REMOTE
+set -e
+echo "── Waiting for app to be ready ──"
+sleep 8
 
-                                echo '── Checking container status ──'
-                                cd ${APP_DIR}
-                                docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} ps
+echo "── Checking container status ──"
+cd ${APP_DIR}
+docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} ps
 
-                                echo '── Running health check ──'
-                                curl -f http://127.0.0.1:3001/health
-                            "
+echo "── Running health check ──"
+curl -f http://127.0.0.1:3001/health
+REMOTE
                         '''
                     }
                 }
@@ -98,10 +98,10 @@ pipeline {
             echo '❌ Deployment failed — printing container logs'
             sshagent(credentials: ['vps-ssh-key']) {
                 sh '''
-                    ssh -o StrictHostKeyChecking=no -T ${VPS_USER}@${VPS_HOST} "
-                        cd ${APP_DIR}
-                        docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} logs --tail=100
-                    " || true
+                    ssh -o StrictHostKeyChecking=no ${VPS_USER}@${VPS_HOST} <<REMOTE || true
+cd ${APP_DIR}
+docker compose -f ${COMPOSE_FILE} --env-file ${ENV_FILE} logs --tail=100
+REMOTE
                 '''
             }
         }
